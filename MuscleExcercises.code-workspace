@@ -1,0 +1,2397 @@
+#!/usr/bin/env python3
+"""
+Muscle Exercise Recommender
+============================
+Ask the user for ANY muscle (not a fixed menu) and print the best exercises
+for that muscle, ranked BEST -> WORST, with the scientific/biomechanical
+reasoning for why each one works the muscle and why it sits where it does
+in the ranking.
+ 
+The program recognizes common names, anatomical (Latin) names, and
+everyday nicknames for 34 major skeletal muscles/muscle groups -- covering
+essentially every muscle a person would train in the gym. If you type
+something it doesn't recognize, it will try a fuzzy match, and otherwise
+tell you it doesn't have that one yet (rather than pretending it does).
+ 
+Ranking principles used throughout (established exercise-science /
+biomechanics concepts, not a citation of one single study):
+  1. Stretch-mediated tension - loading a muscle while it is lengthened
+     tends to produce a stronger growth/strength stimulus than loading it
+     only in a shortened position.
+  2. Resistance profile - whether the exercise keeps tension on the muscle
+     through its full range (e.g., cables) or loses tension at certain
+     joint angles (e.g., free weights at the "easy" point of the arc).
+  3. Direct vs. shared tension - how much of the work goes to the target
+     muscle vs. to synergists/stabilizers that may fatigue first.
+  4. Range of motion available at the joint(s) involved.
+  5. Stability demands - instability can divert effort away from the
+     target muscle and into balance/stabilization instead.
+  6. Motor unit recruitment - heavier loads and movements capable of
+     producing high force output recruit a greater proportion of
+     high-threshold (fast-twitch) motor units, which carry the greatest
+     potential for strength and size gains.
+  7. Progressive overload - how easily and how far an exercise's
+     difficulty (load, reps, or range) can keep increasing over time;
+     exercises with a higher ceiling for continued overload sustain
+     progress longer than ones that are quickly capped (e.g. by
+     bodyweight or a light cable stack).
+"""
+ 
+import random
+import sys
+from dataclasses import dataclass
+from difflib import get_close_matches
+from textwrap import fill
+ 
+ 
+@dataclass
+class Exercise:
+    name: str
+    mechanism: str       # scientific / biomechanical explanation
+    why_ranked: str       # justification for its position in the ranking
+ 
+ 
+@dataclass
+class Muscle:
+    display_name: str
+    anatomy: str
+    exercises: list       # ordered best -> worst
+ 
+ 
+# ---------------------------------------------------------------------------
+# DATABASE  (~20 major trainable muscles/muscle groups)
+# ---------------------------------------------------------------------------
+ 
+MUSCLE_DB = {
+ 
+    "chest": Muscle(
+        "Chest (Pectoralis Major)",
+        "The pectoralis major flexes, adducts, and internally rotates the "
+        "shoulder (horizontal adduction is the movement most exercises "
+        "exploit). Its fibers fan out from the sternum/clavicle to the "
+        "humerus, so the direction of the resistance relative to the arm "
+        "determines which portion of the muscle is stressed most.",
+        [
+            Exercise("Incline Dumbbell Press",
+                "Dumbbells let the arms travel through horizontal adduction "
+                "with a full stretch at the bottom (shoulders extended "
+                "behind the torso), loading the pec fibers at their longest "
+                "length -- the position linked to the strongest hypertrophy "
+                "signal. The incline biases the clavicular head without "
+                "shifting most of the work to the front delt.",
+                "Ranked #1: combines a deep, muscle-driven stretch with "
+                "constant tension through the whole range, and free "
+                "rotation of the wrists/elbows lets the pecs dictate the "
+                "groove rather than a fixed bar path."),
+            Exercise("Flat Barbell Bench Press",
+                "A horizontal-adduction press with a fixed bar path that "
+                "keeps tension high through the mid-range; because it is "
+                "the most loadable pressing variation, it drives the "
+                "greatest absolute mechanical tension.",
+                "Ranked #2: slightly behind the incline dumbbell press "
+                "because the fixed bar path limits the bottom-range stretch "
+                "(the bar stops at the chest instead of letting the "
+                "shoulder travel further into extension)."),
+            Exercise("Cable Fly (low-to-high or mid)",
+                "Cables keep resistance roughly perpendicular to the pec "
+                "fibers throughout the arc, so tension stays high even at "
+                "full stretch, unlike dumbbells, which go slack at the "
+                "bottom once gravity lines up with the arm.",
+                "Ranked #3: superb for loading the lengthened position "
+                "specifically, but cannot be loaded as heavily as a press, "
+                "so total mechanical tension is lower."),
+            Exercise("Dips (chest-focused, torso leaned forward)",
+                "Leaning forward increases shoulder flexion range and "
+                "shifts more horizontal-adduction demand onto the lower "
+                "pec fibers, with bodyweight (or added load) giving a deep "
+                "stretch at the bottom.",
+                "Ranked #4: effective and loadable, but the triceps and "
+                "front delt take on a larger share of the work, and "
+                "bottom-range shoulder stress limits how deep some lifters "
+                "can safely go."),
+            Exercise("Push-Up",
+                "Same horizontal-adduction pattern as the bench press, but "
+                "loaded only with a fraction of bodyweight through a closed "
+                "kinetic chain that also demands core/scapular "
+                "stabilization.",
+                "Ranked #5: resistance is capped by bodyweight, so once a "
+                "lifter can do high reps easily, mechanical tension is too "
+                "low to keep driving adaptation without added load."),
+        ]),
+ 
+    "upper chest": Muscle(
+        "Upper Chest (Clavicular Head of Pectoralis Major)",
+        "The clavicular (upper) fibers of the pec run from the collarbone "
+        "down to the humerus at a steeper angle than the rest of the "
+        "muscle, so they are recruited hardest when horizontal adduction "
+        "happens on an upward-angled path (an incline press) rather than "
+        "flat or downward.",
+        [
+            Exercise("Incline Barbell/Dumbbell Press (30-45 degree bench)",
+                "The upward press angle aligns the resistance closely with "
+                "the clavicular fibers' pulling direction, and dumbbells "
+                "additionally allow a deep stretch at the bottom where the "
+                "shoulders drop behind the torso.",
+                "Ranked #1: the incline angle most directly matches the "
+                "clavicular head's fiber direction while still allowing "
+                "heavy loading."),
+            Exercise("Low-to-High Cable Fly",
+                "Setting the cable low and pressing/flying up and across "
+                "the body pulls the arm along the exact plane the upper "
+                "pec fibers act through, with constant cable tension even "
+                "at full stretch.",
+                "Ranked #2: excellent fiber-direction match and a great "
+                "stretch, but loadable weight is lower than a press."),
+            Exercise("Incline Push-Up (feet elevated)",
+                "Elevating the feet (or hands on a low incline) tilts the "
+                "horizontal-adduction plane upward, biasing the same "
+                "clavicular fibers as an incline press, using bodyweight "
+                "as the resistance.",
+                "Ranked #3: accessible and effective, but capped by "
+                "bodyweight, limiting long-term progressive overload."),
+        ]),
+ 
+    "lower chest": Muscle(
+        "Lower Chest (Sternocostal Head of Pectoralis Major)",
+        "The sternocostal (lower/middle) fibers run from the sternum and "
+        "ribs to the humerus at a downward angle, so they are recruited "
+        "hardest when horizontal adduction happens on a downward path "
+        "(a decline press or dip) rather than on an incline.",
+        [
+            Exercise("Dips (chest-focused, torso leaned forward)",
+                "Leaning the torso forward during a dip increases shoulder "
+                "extension range below the torso, directly matching the "
+                "downward pulling angle of the lower pec fibers, loaded "
+                "with bodyweight or added weight.",
+                "Ranked #1: the deepest stretch and clearest fiber-angle "
+                "match available for this portion of the muscle, with "
+                "genuine loadability via a dip belt."),
+            Exercise("Decline Barbell/Dumbbell Press",
+                "Pressing on a downward-angled bench moves the arm along "
+                "the same downward plane the lower pec fibers pull "
+                "through, while still allowing heavy barbell or dumbbell "
+                "loading.",
+                "Ranked #2: very effective and heavily loadable, but the "
+                "reduced range of motion at the bottom (torso is already "
+                "closer to the bar) gives slightly less stretch than a "
+                "deep dip."),
+            Exercise("High-to-Low Cable Fly",
+                "Setting the cable high and pulling down and across the "
+                "body pulls the arm along the lower pec fibers' downward "
+                "plane, with continuous cable tension through the range.",
+                "Ranked #3: good fiber-direction match and a controlled "
+                "stretch, but the load ceiling is well below a dip or "
+                "decline press."),
+        ]),
+ 
+    "back": Muscle(
+        "Back / Lats (Latissimus Dorsi)",
+        "The lats extend, adduct, and internally rotate the shoulder, and "
+        "assist scapular depression. Because they attach broadly from the "
+        "pelvis/spine to the humerus, both pulling angle (overhead vs. "
+        "sides) and elbow path (wide vs. narrow) change which fibers are "
+        "emphasized.",
+        [
+            Exercise("Weighted Pull-Up / Lat Pulldown (wide, to chest)",
+                "Starting from a dead hang puts the lats in a fully "
+                "lengthened, shoulder-flexed position; pulling the elbows "
+                "down and back drives shoulder extension through a long "
+                "arc, loading the lats at both their longest and strongest "
+                "points.",
+                "Ranked #1: unmatched combination of full stretch, full "
+                "range of shoulder extension, and heavy loadability."),
+            Exercise("Chest-Supported Row (elbows flared ~45 degrees)",
+                "Removing lower-back involvement isolates the pull to the "
+                "shoulder/scapula, and horizontal shoulder extension "
+                "recruits the lats through their mid-range with a strong "
+                "peak contraction as the elbow passes the torso.",
+                "Ranked #2: very stable and heavily loadable, but the "
+                "starting arm position is only mildly stretched compared "
+                "to an overhead pull."),
+            Exercise("Straight-Arm Pulldown",
+                "Keeping the elbow extended isolates shoulder extension "
+                "(the lats' prime action) without biceps assistance, and "
+                "the cable keeps tension on at the top (stretched) "
+                "position where bodyweight pulls would go slack.",
+                "Ranked #3: excellent isolation and stretch-position "
+                "tension, but the load ceiling is much lower than a "
+                "compound pull."),
+            Exercise("Single-Arm Dumbbell Row",
+                "Bracing on a bench fixes the torso, letting the arm move "
+                "through shoulder extension with a good stretch as the "
+                "dumbbell lowers toward the floor.",
+                "Ranked #4: good stretch and unilateral loading, but grip "
+                "fatigue often limits the set before the lats are fully "
+                "taxed."),
+            Exercise("Seated Cable Row (narrow grip, upright torso)",
+                "A horizontal pull extending the shoulder from a neutral "
+                "start; good for mid-back thickness, but the starting arm "
+                "position offers a shorter range of shoulder extension "
+                "than an overhead-style pull.",
+                "Ranked #5: still trains the lats, but reduced range and "
+                "shared work with rhomboids/traps make it the least "
+                "lat-specific movement here."),
+        ]),
+ 
+    "traps": Muscle(
+        "Trapezius",
+        "The trapezius has upper, middle, and lower fibers with different "
+        "jobs: the upper fibers elevate the scapula (shrug), the middle "
+        "fibers retract it, and the lower fibers depress/upwardly rotate "
+        "it. A single exercise rarely hits all three equally, so a full "
+        "trap-training approach usually blends a shrug with rowing and "
+        "overhead pulling work.",
+        [
+            Exercise("Barbell/Dumbbell Shrug",
+                "Scapular elevation directly against a heavy vertical load "
+                "is the trapezius's clearest, most isolated action, and "
+                "the movement can be loaded very heavily.",
+                "Ranked #1 for the upper trap specifically: no other "
+                "exercise isolates scapular elevation this directly while "
+                "allowing this much load."),
+            Exercise("Kelso Shrug",
+                "Performed bent over at the hips (torso near parallel to "
+                "the floor) with dumbbells hanging straight down, then "
+                "shrugging the shoulder blades together and slightly down "
+                "and back rather than straight up. This bent-over angle "
+                "shifts the resistance vector to match the middle and "
+                "lower trap fibers' actual pulling direction (retraction "
+                "and depression) instead of just elevation.",
+                "Ranked #2: fills the exact gap a standard shrug leaves -- "
+                "it is one of the only common exercises that meaningfully "
+                "loads the middle/lower trapezius through scapular "
+                "retraction and depression rather than just elevation, "
+                "and it can still be loaded with real weight."),
+            Exercise("Face Pull",
+                "Pulling a cable toward the face with high elbows combines "
+                "scapular retraction (middle traps) with external rotation, "
+                "and the horizontal cable path keeps tension on through the "
+                "full pull, including the stretched start.",
+                "Ranked #3: excellent for middle-trap and rear-delt "
+                "balance and for scapular health, but it cannot be loaded "
+                "as heavily as a shrug or Kelso shrug, so total tension is "
+                "lower."),
+            Exercise("Barbell Row (wide grip, upright torso)",
+                "A heavy horizontal pull recruits the middle and lower "
+                "traps as scapular stabilizers throughout the row, on top "
+                "of its primary lat/rhomboid demand.",
+                "Ranked #4: strong overall back builder and decent trap "
+                "stimulus, but the traps are secondary movers here, sharing "
+                "the load with the lats and rhomboids."),
+        ]),
+ 
+    "serratus anterior": Muscle(
+        "Serratus Anterior",
+        "The serratus anterior wraps around the ribcage and attaches to "
+        "the shoulder blade, and its main job is protracting the scapula "
+        "(pulling it forward around the ribcage) and rotating it upward "
+        "to support overhead arm movement. It is a common weak point "
+        "behind 'winging' shoulder blades.",
+        [
+            Exercise("Landmine Press (or Standing Overhead Press with a "
+                     "reach at the top)",
+                "Pressing a load overhead and actively reaching/protracting "
+                "the shoulder blade at the very top of the movement adds a "
+                "scapular protraction component on top of the shoulder "
+                "flexion, directly loading the serratus at end range.",
+                "Ranked #1: combines meaningful external load with the "
+                "muscle's actual protraction action at the top of a press, "
+                "which many lifters otherwise skip."),
+            Exercise("Weighted Push-Up Plus",
+                "Pushing the torso further away from the hands at the top "
+                "of a push-up (protracting the scapula past the normal "
+                "lockout) isolates serratus anterior function directly, "
+                "and can be loaded with a weighted vest or plate on the "
+                "back.",
+                "Ranked #2: very targeted and easy to isolate, but the "
+                "extra range at the top is small, so the effective loaded "
+                "range of motion is shorter than a landmine/overhead "
+                "press."),
+            Exercise("Standing Cable/Band Punch (scapular protraction)",
+                "Punching a cable or band straight out from the chest and "
+                "actively reaching further at full extension isolates "
+                "scapular protraction with continuous resistance.",
+                "Ranked #3: good isolation and constant tension, but the "
+                "load achievable is much lower than compound pressing "
+                "movements."),
+        ]),
+ 
+    "teres major & minor": Muscle(
+        "Teres Major & Teres Minor",
+        "The teres major works with the lats to extend, adduct, and "
+        "internally rotate the shoulder (it is sometimes called the "
+        "'lat's little helper'), while the teres minor is a rotator-cuff "
+        "muscle that externally rotates the shoulder alongside the "
+        "infraspinatus. They sit next to each other on the shoulder blade "
+        "but pull in largely opposite rotational directions.",
+        [
+            Exercise("Wide-Grip Pull-Up / Lat Pulldown",
+                "Because the teres major shares the lats' actions "
+                "(shoulder extension, adduction, and internal rotation), "
+                "any heavy vertical pull that stretches and loads the lats "
+                "through a full range also stretches and loads the teres "
+                "major directly alongside them.",
+                "Ranked #1 for teres major: the heaviest, longest-range way "
+                "to load a muscle whose actions mirror the lats almost "
+                "exactly."),
+            Exercise("Cable External Rotation (elbow at side)",
+                "Rotating the forearm outward against a cable, with the "
+                "elbow pinned to the torso, isolates external rotation of "
+                "the shoulder, the teres minor's primary action alongside "
+                "the infraspinatus.",
+                "Ranked #1 for teres minor: the standard, most direct way "
+                "to isolate external rotation without larger muscles "
+                "taking over."),
+            Exercise("Chest-Supported Row (neutral grip, elbows tucked)",
+                "A rowing motion with the elbows kept close to the torso "
+                "recruits the teres major as a synergist to the lats "
+                "during shoulder extension, while requiring less external "
+                "rotation than a wide-grip pull.",
+                "Ranked #3 (general/combined): a solid supporting exercise "
+                "for the teres major, but it does not address the teres "
+                "minor's external-rotation role at all, so it is "
+                "incomplete for this muscle pair as a whole."),
+        ]),
+ 
+    "rhomboids": Muscle(
+        "Rhomboids (Major & Minor)",
+        "The rhomboids sit between the shoulder blades and the spine, "
+        "retracting the scapula (pulling the shoulder blades together) "
+        "and assisting its downward rotation. They work alongside the "
+        "middle trapezius during any horizontal pull, and are most "
+        "engaged during the final 'squeeze' portion of a row, when the "
+        "shoulder blades pull in toward the spine.",
+        [
+            Exercise("Seated Cable Row (neutral grip, pause and squeeze "
+                     "the shoulder blades together at the back)",
+                "Pulling the handle to the torso and deliberately "
+                "retracting the shoulder blades at the end of each rep "
+                "isolates scapular retraction under continuous cable "
+                "tension -- the rhomboids' primary action.",
+                "Ranked #1: the pause-and-squeeze technique directly "
+                "emphasizes the retraction phase where the rhomboids do "
+                "the most work, with constant, controllable tension "
+                "throughout."),
+            Exercise("Chest-Supported Row (wide grip, deliberate "
+                     "scapular retraction)",
+                "Bracing the chest removes momentum and lower-back "
+                "involvement, so the pull is driven almost entirely by "
+                "scapular retraction and shoulder extension, letting the "
+                "rhomboids and middle traps work through a stable, "
+                "supported range.",
+                "Ranked #2: excellent isolation and stability, but "
+                "slightly less direct, continuous tension through the "
+                "retraction phase compared to a cable row."),
+            Exercise("Face Pull (high elbows, pause at full retraction)",
+                "Pulling toward the face with high elbows combines "
+                "scapular retraction with external rotation, and pausing "
+                "at full retraction maximizes time under tension "
+                "specifically in the rhomboids' fully contracted "
+                "position.",
+                "Ranked #3: great for scapular health and balances "
+                "retraction with external rotation work, but the lighter "
+                "cable loads typical of a face pull limit total tension "
+                "compared to a heavier row."),
+        ]),
+ 
+    "rotator cuff": Muscle(
+        "Rotator Cuff (Supraspinatus, Infraspinatus, Teres Minor, "
+        "Subscapularis)",
+        "The four rotator cuff muscles stabilize the head of the humerus "
+        "in the shoulder socket and control internal/external rotation. "
+        "They are small, mostly slow-twitch stabilizers, so they respond "
+        "best to light-to-moderate load, high control, and full range of "
+        "motion rather than maximal heavy lifting.",
+        [
+            Exercise("Cable/Band External Rotation (elbow at side)",
+                "Rotating the forearm outward with the elbow pinned to the "
+                "torso isolates external rotation almost entirely to the "
+                "infraspinatus and teres minor, with a controllable, "
+                "constant resistance well suited to a small stabilizer "
+                "muscle group.",
+                "Ranked #1: the clearest isolation of external rotation "
+                "with a resistance profile (light, continuous cable "
+                "tension) that matches how these small muscles are best "
+                "trained."),
+            Exercise("Cable/Band Internal Rotation (elbow at side)",
+                "The mirror-image motion of the external rotation drill, "
+                "this isolates internal rotation, the subscapularis's "
+                "primary action, using the same controlled setup.",
+                "Ranked #2: equally well-isolated as the external rotation "
+                "movement, but internal rotation is trained less often "
+                "specifically because it's already assisted by larger "
+                "muscles (lats, pec, front delt) in daily pressing/pulling."),
+            Exercise("Empty Can / Full Can Raise",
+                "Raising a light weight in the plane of the shoulder blade "
+                "(roughly 30 degrees forward of straight out to the side) "
+                "targets the supraspinatus, which otherwise gets very "
+                "little direct work from standard pressing or pulling "
+                "exercises.",
+                "Ranked #3: the standard way to reach the supraspinatus "
+                "specifically, but it requires very light load and precise "
+                "form, so it contributes less total mechanical tension "
+                "than the rotation drills above."),
+        ]),
+ 
+    "shoulders": Muscle(
+        "Shoulders (Deltoids, overall)",
+        "The deltoid has three functionally distinct heads pulling in "
+        "different directions: anterior (shoulder flexion), lateral "
+        "(abduction), and posterior (horizontal extension/external "
+        "rotation assistance). No single exercise maximally trains all "
+        "three, so this entry ranks the best overall shoulder builders; "
+        "for one head specifically, try 'anterior deltoid', 'lateral "
+        "deltoid', or 'rear delt'.",
+        [
+            Exercise("Seated Dumbbell Overhead Press",
+                "A vertical press through shoulder flexion/abduction that "
+                "heavily recruits the anterior and lateral heads together "
+                "and allows substantial loading, making it the best "
+                "overall mass- and strength-builder for the shoulder "
+                "complex.",
+                "Ranked #1 overall because it produces the greatest total "
+                "mechanical tension across multiple deltoid heads at once."),
+            Exercise("Cable Lateral Raise",
+                "The cable's angled resistance keeps tension on the "
+                "lateral deltoid through the top of the abduction arc, "
+                "where a dumbbell (pulled straight down by gravity) loses "
+                "tension because the resistance vector lines up with the "
+                "arm.",
+                "Ranked #2: the best single-head isolation on this list, "
+                "but as a single-joint movement it produces less total "
+                "tension than the compound press."),
+            Exercise("Reverse Pec-Deck Fly (rear delt)",
+                "Horizontal shoulder extension with the arms out to the "
+                "sides targets the posterior deltoid, a head that presses "
+                "and lateral raises train very little.",
+                "Ranked #3: essential for balanced shoulder development, "
+                "but it only addresses one of the three heads."),
+            Exercise("Dumbbell Lateral Raise",
+                "Abducting the arm against gravity isolates the lateral "
+                "deltoid, particularly through the middle third of the "
+                "range where the gravitational torque is largest.",
+                "Ranked #4: good isolation, but tension drops sharply near "
+                "the top of the rep as the arm approaches vertical."),
+            Exercise("Front Raise",
+                "Shoulder flexion against gravity isolates the anterior "
+                "deltoid, but this head is already heavily recruited "
+                "during virtually every pressing movement.",
+                "Ranked #5: technically effective, but the most redundant "
+                "option since the front delt rarely needs extra direct "
+                "volume beyond normal pressing."),
+        ]),
+ 
+    "anterior deltoid": Muscle(
+        "Anterior (Front) Deltoid",
+        "The anterior deltoid flexes and internally rotates the shoulder. "
+        "It is heavily recruited by any pressing-forward or "
+        "pressing-overhead movement, which is why it is rarely the "
+        "weakest link in a shoulder routine.",
+        [
+            Exercise("Seated/Standing Overhead Press",
+                "Pressing a load directly overhead requires strong "
+                "shoulder flexion from a stretched start (arm at the "
+                "side) to full elevation, maximizing anterior deltoid "
+                "tension across a long range under heavy load.",
+                "Ranked #1: heaviest loadable option with a full range of "
+                "shoulder flexion."),
+            Exercise("Incline Dumbbell/Barbell Press",
+                "The upward pressing angle overlaps significantly with "
+                "shoulder flexion, giving the front delt substantial "
+                "tension in addition to the chest's primary contribution.",
+                "Ranked #2: very effective and heavily loadable, but the "
+                "pecs share a large portion of the workload."),
+            Exercise("Front Raise",
+                "Shoulder flexion against gravity with a straight or "
+                "slightly bent arm isolates the anterior deltoid directly, "
+                "with peak resistance around shoulder height.",
+                "Ranked #3: the most isolated option, but load is capped "
+                "much lower than a press, and most lifters already get "
+                "plenty of front-delt work from pressing."),
+        ]),
+ 
+    "lateral deltoid": Muscle(
+        "Lateral (Side) Deltoid",
+        "The lateral deltoid abducts the shoulder (raises the arm out to "
+        "the side) and is the head most responsible for the appearance of "
+        "shoulder 'width.'",
+        [
+            Exercise("Cable Lateral Raise",
+                "The cable's line of pull stays angled against the arm "
+                "through the entire range, so resistance never goes slack "
+                "at the top the way it does with a dumbbell, keeping the "
+                "lateral head under tension through a longer effective "
+                "range.",
+                "Ranked #1 for the exact reason above: it solves the "
+                "classic 'weightless at the top' problem of the dumbbell "
+                "version."),
+            Exercise("Dumbbell Lateral Raise",
+                "Abducting the arm against gravity isolates the lateral "
+                "deltoid with minimal help from other muscles, especially "
+                "through the middle third of the range where the moment "
+                "arm (and gravitational torque) is largest.",
+                "Ranked #2: highly isolated, but tension drops sharply "
+                "near the top as the arm approaches vertical."),
+            Exercise("Overhead Press",
+                "Abduction is a secondary contributor as the arm moves "
+                "overhead, so the lateral head gets meaningful (though not "
+                "primary) tension during a heavy compound press.",
+                "Ranked #3: good supplementary work, but the lateral head "
+                "is not the prime mover here, so it is a poor substitute "
+                "for direct raises."),
+        ]),
+ 
+    "rear delt": Muscle(
+        "Posterior (Rear) Deltoid",
+        "The rear deltoid horizontally extends and externally rotates the "
+        "shoulder. It is frequently under-trained because most pushing "
+        "exercises never load it, and it plays an important role in "
+        "shoulder-joint balance and posture.",
+        [
+            Exercise("Reverse Pec-Deck Fly",
+                "A fixed arc keeps the arms in a consistent horizontal "
+                "plane, isolating horizontal shoulder extension with "
+                "continuous machine-driven tension.",
+                "Ranked #1: the most isolated, most consistently loaded "
+                "option for this head."),
+            Exercise("Face Pull",
+                "Pulling toward the face with high elbows combines "
+                "horizontal extension with external rotation, closely "
+                "matching the rear delt's full action.",
+                "Ranked #2: trains the muscle through its full functional "
+                "role (not just extension), but the cable angle can't be "
+                "loaded as heavily as a machine fly."),
+            Exercise("Bent-Over Dumbbell Rear-Delt Raise",
+                "Hinging forward and raising the arms out to the sides "
+                "replicates horizontal extension using free weights, "
+                "requiring some core/lower-back stabilization.",
+                "Ranked #3: effective and accessible, but the bent-over "
+                "posture is harder to hold under heavier loads, capping "
+                "the tension achievable versus a machine or cable."),
+        ]),
+ 
+    "biceps": Muscle(
+        "Biceps Brachii",
+        "The biceps flex the elbow and supinate the forearm. It crosses "
+        "both the elbow and shoulder, so an extended shoulder (arm behind "
+        "the torso) lengthens the long head, increasing the muscle's "
+        "mechanical stretch during elbow flexion.",
+        [
+            Exercise("Incline Dumbbell Curl",
+                "Sitting on an incline lets the arm hang behind the torso "
+                "(shoulder extension), pre-lengthening the long head before "
+                "it flexes the elbow under load -- the deepest "
+                "stretch-under-tension position available for this "
+                "muscle.",
+                "Ranked #1 for maximizing tension at long muscle length, "
+                "which hypertrophy research consistently favors for "
+                "growth."),
+            Exercise("Standing Barbell Curl",
+                "A straightforward elbow-flexion + supination movement "
+                "that allows the heaviest loading of any curl variation.",
+                "Ranked #2: less stretch emphasis than the incline curl, "
+                "but compensates with superior loadability."),
+            Exercise("Cable Curl (arms at sides)",
+                "Cables resist elbow extension throughout the whole arc, "
+                "so unlike a dumbbell, the biceps stay under tension even "
+                "at the top of the contraction.",
+                "Ranked #3: superior time-under-tension consistency, but "
+                "doesn't add the extra long-head stretch of an incline "
+                "curl."),
+            Exercise("Preacher Curl",
+                "Fixing the upper arm on a pad removes momentum and "
+                "stresses the biceps hardest near full extension, a "
+                "portion of the curl many lifters otherwise rush through.",
+                "Ranked #4: excellent bottom-range isolation, but tension "
+                "drops off near lockout and the pad slightly shortens the "
+                "long head versus an incline curl."),
+            Exercise("Hammer Curl (neutral grip)",
+                "A neutral grip shifts emphasis toward the brachialis and "
+                "brachioradialis; the biceps' distinguishing action "
+                "(supination) is not used.",
+                "Ranked #5 for biceps specifically: valuable for arm size "
+                "overall, but the least biceps-targeted movement here."),
+        ]),
+ 
+    "brachialis": Muscle(
+        "Brachialis",
+        "The brachialis lies underneath the biceps and flexes the elbow "
+        "regardless of forearm rotation (unlike the biceps, which flexes "
+        "the elbow most effectively when the palm faces up). Because it "
+        "sits deep to the biceps, growing it pushes the biceps upward and "
+        "outward, meaningfully increasing overall arm thickness when "
+        "viewed from the side.",
+        [
+            Exercise("Hammer Curl (neutral grip)",
+                "A neutral (palm-facing-in) grip removes the biceps' "
+                "leverage advantage from supination, shifting a much "
+                "larger share of elbow-flexion demand onto the brachialis "
+                "and brachioradialis.",
+                "Ranked #1: the clearest way to bias elbow flexion away "
+                "from the biceps and onto the brachialis while still "
+                "allowing solid loading."),
+            Exercise("Reverse-Grip Barbell Curl",
+                "An overhand (palm-down) grip puts the biceps at a "
+                "mechanical disadvantage for supination-driven flexion, "
+                "forcing the brachialis and brachioradialis to take over "
+                "more of the lifting.",
+                "Ranked #2: strong brachialis bias and heavier loading "
+                "potential than dumbbells, but the pronated wrist position "
+                "is less comfortable for some lifters and can limit the "
+                "weight used."),
+            Exercise("Cross-Body Hammer Curl",
+                "Curling the dumbbell across the body toward the opposite "
+                "shoulder keeps the forearm neutral throughout, similar to "
+                "a standard hammer curl, while changing the angle of pull "
+                "slightly at the top.",
+                "Ranked #3: effective and joint-friendly, but functionally "
+                "very similar to the standard hammer curl rather than "
+                "offering a distinct advantage."),
+        ]),
+ 
+    "brachioradialis": Muscle(
+        "Brachioradialis",
+        "The brachioradialis is a forearm muscle that flexes the elbow "
+        "most strongly when the forearm is in a neutral or midway-"
+        "pronated position (thumb roughly upward) -- it contributes least "
+        "when the palm is fully supinated (as in a standard biceps curl) "
+        "and most when the grip is neither fully palm-up nor fully "
+        "palm-down.",
+        [
+            Exercise("Reverse-Grip Barbell Curl",
+                "A fully pronated (palm-down) grip puts the biceps at a "
+                "poor mechanical angle for elbow flexion, shifting a large "
+                "share of the work to the brachioradialis, which is "
+                "well-suited to producing force from this wrist position.",
+                "Ranked #1: strong, heavily loadable bias toward this "
+                "muscle by directly disadvantaging its main competitor "
+                "(the biceps)."),
+            Exercise("Hammer Curl (neutral grip)",
+                "A neutral grip sits close to the brachioradialis's "
+                "strongest position, giving it substantial involvement "
+                "alongside the brachialis during elbow flexion.",
+                "Ranked #2: very effective and comfortable on the wrists, "
+                "but it shares emphasis with the brachialis rather than "
+                "isolating the brachioradialis specifically."),
+            Exercise("Cable Curl with Rope (neutral, arms at sides)",
+                "A rope attachment lets the wrist stay neutral throughout "
+                "the curl while the cable keeps constant tension on the "
+                "elbow flexors through the whole range, including the top.",
+                "Ranked #3: good consistent tension and a comfortable "
+                "neutral grip, but the load ceiling is lower than a "
+                "barbell reverse curl."),
+        ]),
+ 
+    "triceps": Muscle(
+        "Triceps Brachii",
+        "The triceps extend the elbow; the long head also crosses the "
+        "shoulder and assists shoulder extension. Positioning the shoulder "
+        "in flexion (arm overhead) lengthens the long head, changing which "
+        "of the three heads bears the most load during elbow extension.",
+        [
+            Exercise("Overhead Cable/Dumbbell Extension",
+                "Raising the arm overhead puts the shoulder in flexion, "
+                "lengthening the long head before elbow extension occurs, "
+                "giving a deep stretch-and-load on the head with the "
+                "largest cross-sectional area.",
+                "Ranked #1: targets the long head at its longest length "
+                "under load, the position most associated with "
+                "hypertrophic stimulus for a biarticular muscle."),
+            Exercise("Close-Grip Bench Press",
+                "A narrow-grip compound press shifts more workload to "
+                "elbow extension versus horizontal adduction, while still "
+                "allowing very heavy loading.",
+                "Ranked #2: unmatched for total mechanical tension, but "
+                "the shoulder stays roughly neutral, missing the long-head "
+                "stretch overhead extensions provide."),
+            Exercise("Cable Pushdown (rope or straight bar)",
+                "Constant cable tension keeps the triceps loaded through "
+                "elbow extension, with the shoulder fixed at the torso so "
+                "effort isn't diverted into stabilization.",
+                "Ranked #3: excellent isolation and consistent tension, "
+                "but under-recruits the long head relative to overhead "
+                "work."),
+            Exercise("Dips (torso upright, triceps-focused)",
+                "An upright torso minimizes shoulder flexion demand, "
+                "centering the movement on elbow extension against a load "
+                "that can exceed bodyweight.",
+                "Ranked #4: strong loading, but shares significant work "
+                "with the chest/front delt, especially near the bottom."),
+            Exercise("Diamond Push-Up",
+                "A narrow hand position increases elbow-extension torque "
+                "demand relative to a standard push-up.",
+                "Ranked #5: accessible, but bodyweight-only loading caps "
+                "mechanical tension once conditioning improves."),
+        ]),
+ 
+    "triceps long head": Muscle(
+        "Triceps -- Long Head",
+        "The long head is the only one of the three triceps heads that "
+        "crosses the shoulder joint (in addition to the elbow), so it "
+        "also assists shoulder extension. Because of this, positioning "
+        "the shoulder in flexion (arm raised overhead) stretches the long "
+        "head before elbow extension occurs, which is the key lever for "
+        "targeting it specifically over the other two heads.",
+        [
+            Exercise("Overhead Cable/Dumbbell Extension",
+                "Raising the arm overhead puts the shoulder in flexion, "
+                "pre-lengthening the long head across both joints it "
+                "crosses before elbow extension occurs -- the deepest "
+                "stretch-under-load position available for this head.",
+                "Ranked #1: the clearest way to bias the long head "
+                "specifically, since no other common triceps exercise "
+                "stretches it this deeply before loading it."),
+            Exercise("Skull Crusher (lying, bar lowered behind the head)",
+                "Lowering the bar back and behind the head (rather than "
+                "straight down toward the forehead) keeps the shoulder in "
+                "some flexion throughout, maintaining long-head stretch "
+                "through a large part of the range while still allowing "
+                "barbell loading.",
+                "Ranked #2: strong stretch-position tension and heavier "
+                "loading than a cable extension, but the lying position "
+                "makes the shoulder angle harder to control precisely than "
+                "a standing overhead extension."),
+            Exercise("Close-Grip Bench Press",
+                "A narrow-grip compound press allows very heavy total "
+                "loading of elbow extension, and the long head still "
+                "contributes as a synergist even though the shoulder stays "
+                "roughly neutral rather than flexed.",
+                "Ranked #3: unmatched for total mechanical tension, but "
+                "the neutral shoulder position means the long head is not "
+                "specifically targeted the way overhead work targets it."),
+        ]),
+ 
+    "triceps short head": Muscle(
+        "Triceps -- Short (Lateral) Head",
+        "The 'short head' (commonly the lateral head in anatomical texts) "
+        "sits on the outside of the upper arm and crosses only the elbow "
+        "joint, so shoulder position doesn't change its length the way it "
+        "does for the long head. It responds strongly to high-force, "
+        "heavily loaded elbow extension and contributes significantly to "
+        "the arm's visible width/thickness from the side.",
+        [
+            Exercise("Close-Grip Bench Press",
+                "Because this head isn't affected by shoulder angle, what "
+                "matters most is total force output during elbow "
+                "extension -- and a heavy compound press generates far "
+                "more force than any single-joint triceps movement.",
+                "Ranked #1: the heaviest loadable elbow-extension movement "
+                "available, which directly matches what drives this "
+                "particular head (high force output, not stretch "
+                "position)."),
+            Exercise("Cable Pushdown (straight bar, pronated grip)",
+                "A pronated (palms-down) grip on a straight bar biases the "
+                "outer portion of the triceps somewhat more than a rope or "
+                "supinated grip, with constant cable tension through the "
+                "full elbow-extension range.",
+                "Ranked #2: excellent consistent tension and a grip that "
+                "leans toward this head, but the load ceiling is well "
+                "below a heavy compound press."),
+            Exercise("Diamond Push-Up",
+                "A narrow hand position increases elbow-extension torque "
+                "demand, recruiting the outer triceps similarly to a "
+                "close-grip press but with bodyweight loading.",
+                "Ranked #3: accessible and effective, but bodyweight-only "
+                "resistance is quickly outgrown as a sufficient stimulus "
+                "for a muscle that responds best to high force."),
+        ]),
+ 
+    "triceps medial head": Muscle(
+        "Triceps -- Medial Head",
+        "The medial head lies deepest under the other two heads and is "
+        "active across almost every elbow-extension movement regardless "
+        "of angle or grip -- it's often called the triceps' 'workhorse' "
+        "because it rarely turns off, but it is hardest to isolate or "
+        "bias specifically for that same reason.",
+        [
+            Exercise("Cable Pushdown (rope, full lockout emphasized)",
+                "Constant cable tension through the entire range, "
+                "especially the last few degrees of lockout where the "
+                "medial head does a disproportionate share of the work, "
+                "keeps this head under tension longer than free-weight "
+                "movements that lose tension near lockout.",
+                "Ranked #1: the continuous tension through full lockout "
+                "matches exactly where the medial head is most active and "
+                "hardest to otherwise target."),
+            Exercise("Bench Dip / Ring Dip (moderate depth)",
+                "A dip pattern trains elbow extension through a large "
+                "range with the medial head contributing throughout, and "
+                "can be loaded with a weighted vest or plate for "
+                "meaningful resistance.",
+                "Ranked #2: good range and loadable, but the shoulder and "
+                "chest share more of the workload than in a pushdown, "
+                "diluting the medial-head-specific stimulus somewhat."),
+            Exercise("Skull Crusher (straight down to forehead)",
+                "Lowering the bar straight down to the forehead (rather "
+                "than behind the head) keeps the shoulder neutral, so "
+                "nearly all the work is pure elbow extension -- the "
+                "medial head's constant role across all triceps work.",
+                "Ranked #3: solid, direct elbow-extension work, but offers "
+                "no specific advantage for isolating the medial head over "
+                "the pushdown or dip, since this head is engaged similarly "
+                "in almost any triceps exercise."),
+        ]),
+ 
+    "forearms": Muscle(
+        "Forearm Flexors/Extensors",
+        "The forearm flexors (on the palm side) flex the wrist and "
+        "fingers; the extensors (on the back of the hand side) do the "
+        "opposite. Grip strength depends heavily on the flexors, while the "
+        "extensors are frequently neglected despite being important for "
+        "wrist balance and injury prevention.",
+        [
+            Exercise("Farmer's Carry",
+                "Simply holding a heavy load forces the flexors into a "
+                "sustained isometric contraction to keep the fingers "
+                "closed, producing very high, prolonged tension with no "
+                "technical skill required.",
+                "Ranked #1: the combination of maximal load and long "
+                "time-under-tension makes it extremely effective for "
+                "grip/flexor strength, which usually carries over directly "
+                "to forearm size."),
+            Exercise("Wrist Curl (palms up)",
+                "Flexing the wrist against a barbell or dumbbell directly "
+                "and repeatedly loads the flexor muscle bellies through "
+                "their full range.",
+                "Ranked #2: highly targeted and progressively loadable, "
+                "but trains only wrist flexion, not the sustained grip "
+                "component."),
+            Exercise("Reverse Wrist Curl (palms down)",
+                "Extending the wrist against resistance directly targets "
+                "the extensors on the back of the forearm, a muscle group "
+                "most training programs otherwise ignore.",
+                "Ranked #3: important for balance and elbow health (e.g., "
+                "preventing tennis-elbow-type overuse), but the extensors "
+                "are inherently weaker and cannot be loaded as heavily as "
+                "the flexors."),
+        ]),
+ 
+    "abs": Muscle(
+        "Abs (Rectus Abdominis)",
+        "The rectus abdominis flexes the spine (bringing the ribcage "
+        "toward the pelvis or vice versa). Like any muscle, more resisted "
+        "spinal flexion (or resisted anti-extension) means greater "
+        "tension, so loaded, full-range movement tends to outperform "
+        "static holds or unloaded reps.",
+        [
+            Exercise("Weighted Cable Crunch",
+                "Kneeling and flexing the spine against a cable allows "
+                "progressively increasable external resistance directly "
+                "in line with the muscle's function, with a deep stretch "
+                "at the top and a hard contraction at the bottom.",
+                "Ranked #1: the only common ab exercise that lets you "
+                "meaningfully add external load to true spinal flexion "
+                "through a full range."),
+            Exercise("Hanging Leg/Knee Raise",
+                "Raising the legs by flexing the hip requires the rectus "
+                "abdominis to posteriorly tilt the pelvis and stabilize "
+                "the spine against the hip flexors, and hanging freely "
+                "adds a genuine stretch at the bottom.",
+                "Ranked #2: excellent stretch and real bodyweight-based "
+                "load, but hip flexor involvement is high and can limit "
+                "how much the abs are challenged as the legs get "
+                "stronger."),
+            Exercise("Weighted Sit-Up",
+                "Full spinal flexion from lying to seated against a held "
+                "weight directly loads the rectus abdominis through a "
+                "long range of motion.",
+                "Ranked #3: good range and loadable, but hip flexors "
+                "contribute significantly once the torso passes roughly "
+                "halfway up."),
+            Exercise("Ab Wheel Rollout",
+                "Extending the spine and shoulders forward requires the "
+                "abs to resist spinal extension eccentrically, then pull "
+                "the body back concentrically -- a demanding "
+                "stretch-and-contract pattern.",
+                "Ranked #4: very effective for anti-extension core "
+                "strength, but harder to progressively overload in small "
+                "increments than a stack-based cable crunch."),
+            Exercise("Bodyweight Crunch",
+                "A short-range spinal flexion movement that activates the "
+                "upper rectus abdominis but moves the torso only a small "
+                "distance off the floor.",
+                "Ranked #5: fine for beginners, but short range and no "
+                "external load make it the least effective option here "
+                "long-term."),
+        ]),
+ 
+    "obliques": Muscle(
+        "Obliques (Internal & External)",
+        "The obliques rotate and laterally flex the trunk, and (along with "
+        "the transverse abdominis) resist unwanted rotation/extension of "
+        "the spine. Anti-rotation exercises train them functionally, while "
+        "rotational and side-bending exercises train them more directly.",
+        [
+            Exercise("Cable Woodchopper (high-to-low or low-to-high)",
+                "Rotating the trunk against a cable directly loads the "
+                "obliques through a full rotational range with continuous "
+                "resistance, closely mimicking their natural rotational "
+                "function.",
+                "Ranked #1: the most direct, most loadable way to train "
+                "trunk rotation through a full range."),
+            Exercise("Pallof Press",
+                "Pressing a cable straight out from the chest while it "
+                "pulls the torso toward rotation forces the obliques to "
+                "contract isometrically to resist that rotation.",
+                "Ranked #2: excellent for anti-rotation core stability and "
+                "injury prevention, but it doesn't move the spine through "
+                "an active range, so it trains a different (isometric) "
+                "quality than the woodchopper."),
+            Exercise("Weighted Side Bend",
+                "Laterally flexing the trunk against a dumbbell held at "
+                "the side directly loads the obliques on the working side "
+                "through lateral flexion.",
+                "Ranked #3: simple and effective for lateral flexion "
+                "strength, but repeated heavy loading here is sometimes "
+                "avoided due to added compressive spinal load; moderate "
+                "loading is advisable."),
+        ]),
+ 
+    "lower back": Muscle(
+        "Lower Back (Erector Spinae)",
+        "The erector spinae run along the spine and extend it (and resist "
+        "unwanted flexion under load). They are worked isometrically "
+        "during most heavy compound lifts, and directly during dedicated "
+        "hip-hinge and back-extension movements.",
+        [
+            Exercise("Barbell Deadlift (conventional or sumo)",
+                "The erectors must resist spinal flexion isometrically "
+                "throughout the pull while heavy load is lifted from the "
+                "floor, producing very high tension especially off the "
+                "ground and through the mid-pull.",
+                "Ranked #1: no exercise loads the erectors under this "
+                "much total tension while keeping the spine in a "
+                "controlled, neutral position."),
+            Exercise("Back Extension (hyperextension)",
+                "Extending the spine against gravity (or added weight) "
+                "from a flexed starting position directly and dynamically "
+                "trains the erectors through a real range of motion, "
+                "rather than just isometrically.",
+                "Ranked #2: unlike the deadlift, this actually moves the "
+                "spine through extension, but the load ceiling is much "
+                "lower than a barbell deadlift."),
+            Exercise("Good Morning",
+                "Hinging forward at the hips with a bar on the back "
+                "lengthens the erectors as the torso lowers, then they "
+                "help drive the torso back to upright against load.",
+                "Ranked #3: effective and stretches the erectors well, "
+                "but it demands significant hamstring flexibility and "
+                "technical control, and carries more injury risk if "
+                "loaded aggressively without good form."),
+        ]),
+ 
+    "quadriceps": Muscle(
+        "Quadriceps",
+        "The quads extend the knee; the rectus femoris additionally flexes "
+        "the hip, so it is more engaged when the hip is extended during "
+        "knee extension (as in a squat) than when the hip is flexed (as in "
+        "a leg press with a high seat back).",
+        [
+            Exercise("Barbell Back Squat (or Hack Squat)",
+                "A deep squat lengthens the quads across both the hip and "
+                "knee simultaneously, loading them at long muscle length "
+                "while allowing very heavy total loading through the full "
+                "range.",
+                "Ranked #1: the combination of a deep stretch under heavy "
+                "load and full range of motion produces the greatest "
+                "overall mechanical tension across the muscle's full "
+                "length."),
+            Exercise("Leg Press (feet low/center, deep range)",
+                "A fixed sled path removes balance demands, letting the "
+                "lifter push closer to failure safely while still "
+                "achieving deep knee flexion and a strong quad stretch at "
+                "the bottom.",
+                "Ranked #2: nearly matches the squat for stretch and load, "
+                "but the fixed hip angle reduces rectus femoris "
+                "involvement somewhat."),
+            Exercise("Leg Extension",
+                "An open-chain, single-joint movement that isolates knee "
+                "extension entirely, with resistance often peaking near "
+                "full extension -- the point where quad tension is "
+                "hardest to maintain in compound lifts.",
+                "Ranked #3: unmatched isolation and a tension curve that "
+                "complements squats, but total loading is lower than "
+                "compound lifts."),
+            Exercise("Walking Lunge",
+                "A single-leg squat pattern that lengthens the quads "
+                "through knee flexion while adding a balance demand and "
+                "some hip extension from the trailing leg.",
+                "Ranked #4: great functional carryover and unilateral "
+                "loading, but stability demands usually cap the load "
+                "below what a bilateral squat can achieve."),
+            Exercise("Bodyweight Split Squat",
+                "Same joint mechanics as the lunge/squat family without "
+                "external load, so the muscle still lengthens through a "
+                "full range but under comparatively low resistance.",
+                "Ranked #5: good for technique or beginners, but "
+                "bodyweight-only resistance is quickly outgrown as a "
+                "sufficient stimulus."),
+        ]),
+ 
+    "hamstrings": Muscle(
+        "Hamstrings",
+        "The hamstrings flex the knee and extend the hip. Because they "
+        "cross both joints, exercises that lengthen them at the hip (hip "
+        "flexion with knees relatively straight, as in a deadlift) load a "
+        "different portion of their length-tension curve than exercises "
+        "that flex the knee with the hip fixed (leg curls).",
+        [
+            Exercise("Romanian Deadlift",
+                "Hinging at the hip with soft knees lengthens the "
+                "hamstrings across the hip while they simultaneously "
+                "resist knee flexion isometrically, loading the muscle at "
+                "a long length under heavy, controllable resistance.",
+                "Ranked #1: combines a deep hip-hinge stretch with high "
+                "loadability, matching the stretch-mediated-tension "
+                "principle that drives strong hamstring hypertrophy."),
+            Exercise("Nordic Hamstring Curl",
+                "Anchoring the feet and lowering the torso under control "
+                "forces the hamstrings to eccentrically control knee "
+                "extension while already lengthened at the hip, producing "
+                "very high eccentric tension at long muscle length.",
+                "Ranked #2: exceptional eccentric overload, but "
+                "bodyweight-limited and technically demanding to control "
+                "safely without practice or an anchor/partner."),
+            Exercise("Seated Leg Curl",
+                "With the hip flexed (seated), the hamstrings start "
+                "lengthened at the hip, and the curl adds knee-flexion "
+                "tension on top of that stretch -- more so than a lying "
+                "leg curl.",
+                "Ranked #3: strong stretch-position tension and good "
+                "isolation, but the load ceiling is lower than a heavy "
+                "hip-hinge movement."),
+            Exercise("Lying Leg Curl",
+                "Flexing the knee with the hip extended isolates the "
+                "knee-flexion action of the hamstrings without hip "
+                "involvement.",
+                "Ranked #4: solid isolation, but the extended-hip start "
+                "shortens the hamstrings at the hip, reducing the "
+                "length-based tension advantage of the seated curl or "
+                "RDL."),
+            Exercise("Glute-Ham Raise (partial range)",
+                "Combines hip extension and knee flexion, but many "
+                "lifters perform it through a limited range due to "
+                "difficulty.",
+                "Ranked #5: high potential, but in practice often "
+                "executed through a partial range that reduces its "
+                "real-world effectiveness."),
+        ]),
+ 
+    "biceps femoris": Muscle(
+        "Biceps Femoris (Lateral Hamstring)",
+        "The biceps femoris is the outermost (lateral) of the three "
+        "hamstring muscles. Its long head crosses both the hip and knee "
+        "like the other hamstrings, but it uniquely also externally "
+        "rotates the shin at the knee, so movements that add a rotational "
+        "or wide-stance element bias it more than the medial hamstrings.",
+        [
+            Exercise("Romanian Deadlift (feet shoulder-width, slight "
+                     "external rotation)",
+                "A standard hip hinge lengthens all three hamstring "
+                "muscles at the hip under heavy load; keeping the feet and "
+                "knees very slightly externally rotated shifts a bit more "
+                "of the tension onto the biceps femoris, given its role in "
+                "external rotation of the shin.",
+                "Ranked #1: still the heaviest, longest-range hamstring "
+                "stretch-and-load movement available, with a small "
+                "positional tweak to bias the lateral head."),
+            Exercise("Single-Leg Romanian Deadlift",
+                "Balancing on one leg during a hip hinge requires extra "
+                "rotational control at the knee and hip, recruiting the "
+                "biceps femoris more than a bilateral RDL to help "
+                "stabilize the lower leg against unwanted rotation.",
+                "Ranked #2: good lateral-hamstring bias and useful "
+                "unilateral carryover, but the balance demand generally "
+                "caps the load below a bilateral RDL."),
+            Exercise("Seated Leg Curl (toes turned slightly outward)",
+                "Turning the toes outward during a seated curl changes the "
+                "line of pull at the knee slightly, increasing demand on "
+                "the biceps femoris relative to a neutral or inward foot "
+                "position.",
+                "Ranked #3: an easy, low-skill way to bias the lateral "
+                "hamstring on a machine, but the effect is modest compared "
+                "to genuine hip-hinge loading."),
+        ]),
+ 
+    "glutes": Muscle(
+        "Glutes (Gluteus Maximus)",
+        "The gluteus maximus extends and externally rotates the hip. It "
+        "produces its greatest force when the hip is flexed (lengthened) "
+        "and then extended against resistance, so exercises with a deep "
+        "hip-flexion starting position tend to maximize recruitment.",
+        [
+            Exercise("Barbell Hip Thrust",
+                "The resistance vector (a barbell across the hips) aligns "
+                "almost perfectly with the direction of hip extension "
+                "throughout the range, keeping the glutes under "
+                "near-maximal tension from bottom to lockout, with heavy "
+                "loading possible since the movement is inherently "
+                "stable.",
+                "Ranked #1: no other common exercise matches its "
+                "combination of resistance-vector alignment, full-range "
+                "tension, and loadability."),
+            Exercise("Barbell Deadlift (conventional or sumo)",
+                "A deep hip hinge lengthens the glutes before they drive "
+                "hip extension against very heavy load, recruiting them "
+                "powerfully through the lower half of the lift.",
+                "Ranked #2: enormous total loading and a good stretch, "
+                "but tension tapers off near lockout as the hamstrings "
+                "and lower back share more of the finishing work."),
+            Exercise("Bulgarian Split Squat",
+                "The rear-foot-elevated position allows deep hip flexion "
+                "on the working leg, stretching the glute before it "
+                "drives hip and knee extension.",
+                "Ranked #3: excellent stretch and carryover, but balance "
+                "demands generally cap the load below bilateral hip "
+                "thrusts or deadlifts."),
+            Exercise("Cable Kickback",
+                "Hip extension against a cable isolates the glute with "
+                "continuous tension, particularly near the top where the "
+                "glute reaches peak contraction.",
+                "Ranked #4: good isolation, but cable resistance is much "
+                "lighter than compound lower-body lifts."),
+            Exercise("Glute Bridge (bodyweight)",
+                "Same hip-extension pattern as the hip thrust but "
+                "performed with shoulders on the floor, shortening the "
+                "range of hip flexion at the bottom and limiting load to "
+                "bodyweight.",
+                "Ranked #5: fine as a regression or warm-up, but the "
+                "shorter range and lack of loading make it the least "
+                "effective option here."),
+        ]),
+ 
+    "hip flexors": Muscle(
+        "Hip Flexors (Iliopsoas)",
+        "The iliopsoas (plus rectus femoris assistance) flexes the hip, "
+        "bringing the knee up toward the torso or the torso toward the "
+        "thigh. It is heavily used in running, kicking, and sprinting, but "
+        "rarely trained directly with external resistance.",
+        [
+            Exercise("Weighted Hanging Knee/Leg Raise",
+                "Flexing the hip against gravity (and added ankle weight) "
+                "from a dead hang trains the hip flexors through a full "
+                "range under real, progressively increasable resistance.",
+                "Ranked #1: the most direct way to load hip flexion "
+                "through a full range with meaningful, progressive "
+                "resistance."),
+            Exercise("Cable/Band Hip Flexion (standing, ankle attachment)",
+                "A cable or band attached at the ankle resists hip "
+                "flexion directly and keeps tension on throughout the "
+                "entire arc, unlike gravity-based movements that can lose "
+                "tension near the top.",
+                "Ranked #2: excellent isolation and constant tension, but "
+                "load is limited by stack/band tension rather than true "
+                "heavy external weight."),
+            Exercise("Standing March / High-Knee Drill (weighted)",
+                "Repeatedly driving the knee up against light added "
+                "resistance (a band or light ankle weight) trains hip "
+                "flexion dynamically and with some carryover to sprint "
+                "mechanics.",
+                "Ranked #3: useful for endurance and movement pattern "
+                "carryover, but the light loads typically used make it a "
+                "weaker strength/hypertrophy stimulus than the two "
+                "options above."),
+        ]),
+ 
+    "adductors": Muscle(
+        "Adductors (Inner Thigh)",
+        "The hip adductors (adductor magnus, longus, brevis, and gracilis) "
+        "pull the thigh toward the midline of the body, and also assist "
+        "with hip flexion/extension depending on hip position.",
+        [
+            Exercise("Cable Hip Adduction (standing, ankle attachment)",
+                "A cable resists the leg moving away from the midline, so "
+                "pulling it back across the body directly and continuously "
+                "loads the adductors through a full range.",
+                "Ranked #1: the most direct, continuously-loaded isolation "
+                "movement for this muscle group."),
+            Exercise("Seated Machine Adduction",
+                "The machine's pads resist the legs being pushed together, "
+                "isolating hip adduction with a fixed, controlled range "
+                "and easily progressed load.",
+                "Ranked #2: very effective and easy to progressively "
+                "overload, but the seated hip angle changes the "
+                "length-tension relationship somewhat versus a standing "
+                "cable version."),
+            Exercise("Sumo Squat / Wide-Stance Squat",
+                "A wide stance increases the degree of hip abduction at "
+                "the bottom, placing the adductors on stretch as they "
+                "assist in driving the hips back to a neutral, adducted "
+                "position on the way up.",
+                "Ranked #3: allows much heavier total loading than "
+                "isolation machines, but the adductors are secondary "
+                "movers behind the quads and glutes."),
+        ]),
+ 
+    "calves": Muscle(
+        "Calves (Gastrocnemius & Soleus)",
+        "The gastrocnemius crosses both the knee and ankle and is most "
+        "active when the knee is straight (lengthened), while the soleus "
+        "lies underneath, crosses only the ankle, and is best targeted "
+        "with the knee bent (which slackens the gastrocnemius and shifts "
+        "demand to the soleus).",
+        [
+            Exercise("Standing Calf Raise (straight knee)",
+                "With the knee straight, the gastrocnemius is at a longer "
+                "length while performing ankle plantarflexion, maximizing "
+                "its contribution and allowing a deep stretch at the "
+                "bottom.",
+                "Ranked #1 for the gastrocnemius: full stretch at long "
+                "muscle length combined with heavy loadability."),
+            Exercise("Seated Calf Raise (bent knee)",
+                "Bending the knee slackens the gastrocnemius, shifting "
+                "the plantarflexion workload onto the soleus, which "
+                "responds well to the higher volume and time-under-"
+                "tension seated calf raises allow.",
+                "Ranked #2: highly effective for total calf size, but "
+                "under-recruits the gastrocnemius by design."),
+            Exercise("Leg Press Calf Raise",
+                "Pressing through the balls of the feet on a leg-press "
+                "platform allows plantarflexion against very heavy load "
+                "while seated, with the knee typically kept fairly "
+                "straight.",
+                "Ranked #3: good loading potential, but the fixed sled "
+                "path often restricts the stretched bottom position "
+                "compared to a free-standing calf raise."),
+            Exercise("Single-Leg Bodyweight Calf Raise",
+                "Doubles the effective load per leg versus a two-legged "
+                "bodyweight raise and allows a full range of motion off a "
+                "step.",
+                "Ranked #4: useful at home or for beginners, but "
+                "bodyweight loading is a hard ceiling calves resist well."),
+        ]),
+ 
+    "tibialis": Muscle(
+        "Tibialis Anterior",
+        "The tibialis anterior runs along the front of the shin and "
+        "dorsiflexes the ankle (lifting the foot/toes up toward the "
+        "shin) and assists in inverting the foot. It works opposite to "
+        "the calves and is heavily involved in controlling foot-strike "
+        "during walking/running and in preventing shin splints.",
+        [
+            Exercise("Tibialis Raise (weighted, back against a wall or "
+                     "on a slant board)",
+                "Lifting the toes/forefoot up toward the shin against "
+                "external resistance (a weight plate, band, or dedicated "
+                "machine) directly loads dorsiflexion through a full "
+                "range, the tibialis anterior's primary and almost only "
+                "job.",
+                "Ranked #1: the most direct, most progressively loadable "
+                "way to train dorsiflexion in isolation."),
+            Exercise("Banded Toe Raise (seated, foot flat)",
+                "A resistance band looped over the top of the foot resists "
+                "dorsiflexion as the toes lift, providing continuous "
+                "tension through the movement without needing specialized "
+                "equipment.",
+                "Ranked #2: very accessible and effective for higher-rep "
+                "work, but bands are harder to load as heavily or as "
+                "precisely as plates."),
+            Exercise("Heel Walks",
+                "Walking on the heels with the toes lifted keeps the "
+                "tibialis anterior under sustained, dynamic tension across "
+                "many reps as it repeatedly dorsiflexes the ankle to clear "
+                "the ground.",
+                "Ranked #3: useful for endurance and injury-prevention "
+                "carryover (e.g., shin splint resistance), but bodyweight "
+                "only, so it's a weaker strength/hypertrophy stimulus than "
+                "loaded raises."),
+        ]),
+ 
+    "neck": Muscle(
+        "Neck (Flexors, Extensors, Sternocleidomastoid)",
+        "The neck flexors (front, including the sternocleidomastoid) pull "
+        "the chin toward the chest, while the neck extensors (back of the "
+        "neck) pull the head backward. Both groups benefit from direct, "
+        "controlled resistance training, which is one of the more "
+        "evidence-backed ways to reduce neck-injury risk in contact "
+        "sports.",
+        [
+            Exercise("Weighted Neck Flexion (plate on forehead, lying "
+                     "supine)",
+                "Lying on your back and curling the chin toward the chest "
+                "against a plate held on the forehead directly loads the "
+                "neck flexors through a controlled range of motion.",
+                "Ranked #1 for the flexors: the most direct, most "
+                "progressively loadable way to train neck flexion."),
+            Exercise("Weighted Neck Extension (plate on back of head, "
+                     "lying prone)",
+                "Lying face-down and lifting the head back against a "
+                "plate held on the back of the skull directly loads the "
+                "neck extensors through a controlled range.",
+                "Ranked #1 for the extensors: the mirror-image movement to "
+                "weighted flexion, equally direct and loadable for the "
+                "opposite muscle group."),
+            Exercise("Neck Harness (four-way neck machine or harness)",
+                "A dedicated harness or machine adds resistance to "
+                "flexion, extension, and lateral flexion in sequence, "
+                "training the full range of neck musculature with "
+                "adjustable, progressive external load.",
+                "Ranked #2: excellent all-around coverage of the neck's "
+                "different movement directions in one tool, but requires "
+                "specialized equipment most gyms don't have."),
+        ]),
+ 
+    "masseter": Muscle(
+        "Masseter (Jaw Muscle)",
+        "The masseter is one of the primary muscles of mastication; it "
+        "elevates the mandible (closes the jaw) and is one of the "
+        "strongest muscles in the body relative to its size. It responds "
+        "to resistance training the same way any skeletal muscle does: "
+        "repeated, progressively harder resisted contractions.",
+        [
+            Exercise("Progressive Jaw-Resistance Device (e.g., a "
+                     "jaw-exerciser ball/gum designed for this purpose)",
+                "Repeatedly biting down against a resistive, "
+                "progressively firmer material loads the masseter through "
+                "repeated concentric contractions, similar in principle to "
+                "any other resisted muscle-strengthening exercise.",
+                "Ranked #1: the only common option that allows "
+                "genuinely progressive resistance for this muscle."),
+            Exercise("Firm Sugar-Free Chewing Gum (extended chewing "
+                     "sessions)",
+                "Chewing gum with more resistance than food provides "
+                "repeated, moderate-intensity contractions of the "
+                "masseter over an extended time under tension.",
+                "Ranked #2: easy and accessible, but resistance is fixed "
+                "and low, so it functions more like light endurance work "
+                "than progressive strength training."),
+        ]),
+}
+ 
+# ---------------------------------------------------------------------------
+# ALIASES / ANATOMICAL NAMES  ->  DB KEY
+# (used so the user can type ANY common or anatomical name, not just the
+#  handful of keys above)
+# ---------------------------------------------------------------------------
+ 
+MUSCLE_ALIASES = {
+    # chest
+    "chest": "chest", "pecs": "chest", "pec": "chest", "pectorals": "chest",
+    "pectoralis major": "chest", "pectoralis": "chest",
+    "upper chest": "upper chest", "upper pecs": "upper chest",
+    "clavicular head": "upper chest",
+    "lower chest": "lower chest", "lower pecs": "lower chest",
+    "sternocostal head": "lower chest",
+ 
+    # abdomen / core
+    "abs": "abs", "ab": "abs", "core": "abs", "stomach": "abs",
+    "abdomen": "abs", "rectus abdominis": "abs", "six pack": "abs",
+    "obliques": "obliques", "oblique": "obliques", "side abs": "obliques",
+ 
+    # back / lats / upper back muscles
+    "back": "back", "lats": "back", "lat": "back", "latissimus dorsi": "back",
+    "latissimus": "back", "upper back": "back",
+    "serratus anterior": "serratus anterior", "serratus": "serratus anterior",
+    "teres major & minor": "teres major & minor",
+    "teres major and minor": "teres major & minor",
+    "teres major": "teres major & minor", "teres minor": "teres major & minor",
+    "rhomboids": "rhomboids", "rhomboid": "rhomboids",
+    "rhomboid major": "rhomboids", "rhomboid minor": "rhomboids",
+    "rhomboids major and minor": "rhomboids",
+ 
+    # lower back
+    "lower back": "lower back", "erector spinae": "lower back",
+    "erectors": "lower back", "spinal erectors": "lower back",
+    "back extensors": "lower back",
+ 
+    # traps
+    "traps": "traps", "trapezius": "traps", "trap": "traps",
+ 
+    # shoulders (general + heads + rotator cuff)
+    "shoulders": "shoulders", "shoulder": "shoulders", "delts": "shoulders",
+    "deltoids": "shoulders", "deltoid": "shoulders",
+    "anterior deltoid": "anterior deltoid", "front delt": "anterior deltoid",
+    "front deltoid": "anterior deltoid", "anterior delt": "anterior deltoid",
+    "lateral deltoid": "lateral deltoid", "side delt": "lateral deltoid",
+    "side deltoid": "lateral deltoid", "medial deltoid": "lateral deltoid",
+    "rear delt": "rear delt", "posterior deltoid": "rear delt",
+    "rear deltoid": "rear delt", "posterior delt": "rear delt",
+    "rotator cuff": "rotator cuff", "rotator cuffs": "rotator cuff",
+ 
+    # arms
+    "biceps": "biceps", "bicep": "biceps", "biceps brachii": "biceps",
+    "brachialis": "brachialis", "brachialis muscle": "brachialis",
+    "brachiallis": "brachialis",
+    "brachioradialis": "brachioradialis",
+    "triceps": "triceps", "tricep": "triceps", "triceps brachii": "triceps",
+    "triceps long head": "triceps long head",
+    "long head of tricep": "triceps long head",
+    "long head of triceps": "triceps long head",
+    "tricep long head": "triceps long head",
+    "long head": "triceps long head",
+    "triceps short head": "triceps short head",
+    "tricep short head": "triceps short head",
+    "short head of tricep": "triceps short head",
+    "short head of triceps": "triceps short head",
+    "short head": "triceps short head",
+    "triceps lateral head": "triceps short head",
+    "lateral head": "triceps short head",
+    "triceps medial head": "triceps medial head",
+    "tricep medial head": "triceps medial head",
+    "medial head of tricep": "triceps medial head",
+    "medial head of triceps": "triceps medial head",
+    "medial head": "triceps medial head",
+    "forearms": "forearms", "forearm": "forearms", "wrist flexors": "forearms",
+    "wrist extensors": "forearms", "grip": "forearms",
+ 
+    # legs
+    "quads": "quadriceps", "quad": "quadriceps", "quadriceps": "quadriceps",
+    "quadricep": "quadriceps", "thighs": "quadriceps",
+    "front thigh": "quadriceps",
+    "hamstrings": "hamstrings", "hamstring": "hamstrings", "hams": "hamstrings",
+    "back of thigh": "hamstrings",
+    "biceps femoris": "biceps femoris", "bicep femoris": "biceps femoris",
+    "lateral hamstring": "biceps femoris",
+    "glutes": "glutes", "glute": "glutes", "butt": "glutes", "booty": "glutes",
+    "gluteus maximus": "glutes",
+    "hip flexors": "hip flexors", "hip flexor": "hip flexors",
+    "iliopsoas": "hip flexors", "psoas": "hip flexors",
+    "adductors": "adductors", "adductor": "adductors", "inner thigh": "adductors",
+    "groin": "adductors", "adductors (inner thigh)": "adductors",
+    "tibialis": "tibialis", "tibialis anterior": "tibialis", "shin": "tibialis",
+    "shins": "tibialis",
+    "calves": "calves", "calf": "calves", "gastrocnemius": "calves",
+    "soleus": "calves",
+ 
+    # neck / jaw
+    "neck": "neck", "neck muscles": "neck",
+    "sternocleidomastoid": "neck", "scm": "neck",
+    "masseter": "masseter", "jaw": "masseter", "jaw muscle": "masseter",
+}
+ 
+ 
+def _singular_plural_variants(word: str):
+    """Generate plausible singular/plural spellings of a single word so
+    'calf' matches 'calves', 'glute' matches 'glutes', 'bicep' matches
+    'biceps', etc. -- without needing every variant hardcoded as an alias."""
+    variants = {word}
+ 
+    # plural -> singular guesses
+    if word.endswith("ves"):
+        variants.add(word[:-3] + "f")    # calves -> calf
+        variants.add(word[:-3] + "fe")   # (covers -ife/-afe style words)
+    if word.endswith("es"):
+        variants.add(word[:-2])          # glutes -> glut (harmless extra guess)
+    if word.endswith("s") and not word.endswith("ss"):
+        variants.add(word[:-1])          # biceps -> bicep, delts -> delt
+ 
+    # singular -> plural guesses
+    if word.endswith("f"):
+        variants.add(word[:-1] + "ves")  # calf -> calves
+    if word.endswith("fe"):
+        variants.add(word[:-2] + "ves")  # -fe -> -ves
+    if not word.endswith("s"):
+        variants.add(word + "s")         # glute -> glutes, delt -> delts
+        variants.add(word + "es")        # covers -es plurals
+ 
+    return variants
+ 
+ 
+def normalize_input(raw: str):
+    """Map ANY free-text muscle name to a key in MUSCLE_DB using aliases
+    (including anatomical/Latin names and everyday nicknames), automatic
+    singular/plural handling, and a fuzzy match fallback for typos or
+    near-misses."""
+    key = raw.strip().lower()
+ 
+    if key in MUSCLE_ALIASES:
+        return MUSCLE_ALIASES[key]
+ 
+    # Try singular/plural variants of the whole phrase and of each word in
+    # it, so "calf" matches "calves", "glute" matches "glutes",
+    # "quadricep" matches "quadriceps", etc. -- for every muscle, without
+    # needing each form hardcoded in MUSCLE_ALIASES.
+    words = key.split()
+    for candidate in _singular_plural_variants(key):
+        if candidate in MUSCLE_ALIASES:
+            return MUSCLE_ALIASES[candidate]
+ 
+    if len(words) > 1:
+        # multi-word input: vary just the last word (e.g. "hip flexor" ->
+        # "hip flexors") since that's almost always where the plural sits
+        for last_variant in _singular_plural_variants(words[-1]):
+            candidate = " ".join(words[:-1] + [last_variant])
+            if candidate in MUSCLE_ALIASES:
+                return MUSCLE_ALIASES[candidate]
+ 
+    # try fuzzy matching against every known alias phrase (high threshold
+    # to avoid false positives between unrelated short words, e.g.
+    # "arms" incorrectly matching "hams")
+    matches = get_close_matches(key, MUSCLE_ALIASES.keys(), n=1, cutoff=0.80)
+    if matches:
+        return MUSCLE_ALIASES[matches[0]]
+ 
+    # try fuzzy matching word-by-word (helps with things like
+    # "vastus lateralis" -> falls back toward "quadriceps" via "quad").
+    # Skip very short words entirely -- short words are where false
+    # positives like "arms" vs "hams" happen, and a genuine typo of a
+    # short muscle name is better left unmatched than silently wrong.
+    for word in words:
+        if len(word) < 5:
+            continue
+        for candidate in _singular_plural_variants(word):
+            word_matches = get_close_matches(
+                candidate, MUSCLE_ALIASES.keys(), n=1, cutoff=0.80
+            )
+            if word_matches:
+                return MUSCLE_ALIASES[word_matches[0]]
+ 
+    return None
+ 
+ 
+def print_wrapped(text: str, indent: str = "    ", width: int = 78):
+    print(fill(text, width=width, initial_indent=indent, subsequent_indent=indent))
+ 
+ 
+# ---------------------------------------------------------------------------
+# TRAINING PROTOCOL ("best method") PER EXERCISE
+#
+# Universal philosophy applied throughout: no generic "3 sets of X" advice.
+# Every exercise gets one of three evidence-informed protocols:
+#   - 2 sets to true failure
+#   - 1 set x ~6 reps, stopping 1 rep short of failure (1 RIR)
+#   - 1 set to true failure
+#
+# Which protocol (and rep range) fits depends on the exercise's injury
+# risk profile if pushed to true failure:
+#   - Heavy free-weight lifts where failing under load is genuinely risky
+#     (getting pinned under a bar, losing balance with a heavy weight
+#     overhead, spinal fatigue) use the 1 RIR version instead of failure.
+#   - Machine/cable movements run on a fixed, supported path where failure
+#     just means the weight stops moving (no fall risk) can be safely
+#     taken to true failure, and can absorb 2 sets to failure.
+#   - Free-weight isolation, unilateral, and bodyweight movements are
+#     lower-risk than heavy bilateral barbell lifts but still benefit from
+#     just 1 set to true failure rather than 2.
+# ---------------------------------------------------------------------------
+ 
+_PROTOCOL_1RIR_KEYWORDS = [
+    "squat", "deadlift", "good morning", "overhead press", "bench press",
+    "incline barbell", "decline barbell",
+]
+ 
+_PROTOCOL_2X_FAILURE_KEYWORDS = [
+    "cable", "machine", "leg press", "leg extension", "leg curl",
+    "pushdown", "fly", "pulldown", "pec-deck", "face pull", "woodchopper",
+    "pallof", "chest-supported row", "seated cable row", "preacher curl",
+    "wrist curl", "calf raise (bent knee)", "seated calf raise",
+    "leg press calf raise", "adduction", "hip flexion (standing",
+    "internal rotation", "external rotation",
+]
+ 
+# Exact-substring overrides for exercises that don't fit the rep-based
+# buckets cleanly (time-based holds, endurance-style, or unusual cases).
+_PROTOCOL_OVERRIDES = {
+    "farmer's carry": "1 set, carried for maximum time with good posture "
+                       "(aim to approach failure by roughly 30-60 seconds)",
+    "firm sugar-free chewing gum": "Not set-based -- one extended chewing "
+                                    "session of roughly 10-20 minutes",
+    "progressive jaw-resistance device": "1 set to failure x 15-20 "
+                                          "controlled bites",
+    "standing march": "1 set to failure x 15-25 reps per leg",
+    "heel walks": "1 set, walked for maximum distance/time with good form",
+    "nordic hamstring curl": "1 set, as many controlled reps as possible "
+                              "before form breaks down (typically 3-8)",
+}
+ 
+ 
+def get_protocol(exercise_name: str) -> str:
+    """Return the training protocol ('best method') for an exercise: one
+    of 2 sets to failure, 1 set x ~6 with 1 rep in reserve, or 1 set to
+    failure -- never a generic '3 sets' prescription."""
+    name = exercise_name.lower()
+ 
+    for key, protocol in _PROTOCOL_OVERRIDES.items():
+        if key in name:
+            return protocol
+ 
+    if any(k in name for k in _PROTOCOL_1RIR_KEYWORDS):
+        return "1 set x 5-8 reps, stopping 1 rep short of failure (1 RIR)"
+ 
+    if any(k in name for k in _PROTOCOL_2X_FAILURE_KEYWORDS):
+        return "2 sets to true failure x 8-15 reps each"
+ 
+    # bodyweight-only movements suit a higher rep target before failure
+    bodyweight_keywords = [
+        "push-up", "bodyweight", "crunch", "sit-up", "hanging leg",
+        "hanging knee", "wheel rollout", "bench dip", "ring dip",
+    ]
+    if any(k in name for k in bodyweight_keywords):
+        return "1 set to true failure x 15-25 reps"
+ 
+    # default: free-weight isolation, unilateral, or dumbbell movements
+    return "1 set to true failure x 10-15 reps"
+ 
+ 
+def print_report(muscle_key: str):
+    muscle = MUSCLE_DB[muscle_key]
+    print()
+    print("=" * 80)
+    print(f"  {muscle.display_name.upper()}")
+    print("=" * 80)
+    print_wrapped(muscle.anatomy)
+    print()
+    print("Best exercises for this muscle, ranked BEST -> WORST:")
+    print_wrapped(
+        "(judged on: stretch-mediated tension, resistance profile, "
+        "direct vs. shared tension, range of motion, stability demands, "
+        "motor unit recruitment, and progressive overload potential)",
+        indent=""
+    )
+    print("-" * 80)
+ 
+    for rank, ex in enumerate(muscle.exercises, start=1):
+        print(f"\n#{rank}. {ex.name}")
+        print("    How it works the muscle (mechanism):")
+        print_wrapped(ex.mechanism, indent="      ")
+        print("    Why it is ranked here:")
+        print_wrapped(ex.why_ranked, indent="      ")
+        print("    Best method:")
+        print_wrapped(get_protocol(ex.name), indent="      ")
+ 
+    print("\n" + "=" * 80)
+ 
+ 
+# ---------------------------------------------------------------------------
+# BROAD BODY-REGION / MULTI-PART MUSCLE WORDS
+# These aren't specific enough to answer directly, so instead of guessing,
+# the program asks the user to name the specific muscle/portion they mean.
+# ---------------------------------------------------------------------------
+ 
+CATEGORY_GROUPS = {
+    "legs": [
+        "quadriceps", "hamstrings", "glutes", "calves", "adductors",
+        "hip flexors", "tibialis", "biceps femoris",
+    ],
+    "arms": [
+        "biceps", "triceps", "brachialis", "brachioradialis", "forearms",
+    ],
+    "torso": [
+        "chest", "upper chest", "lower chest", "back", "traps", "abs",
+        "obliques", "lower back", "serratus anterior",
+        "teres major & minor", "rotator cuff", "rhomboids",
+    ],
+    "chest": [
+        "chest", "upper chest", "lower chest",
+    ],
+    "back": [
+        "back", "traps", "lower back", "serratus anterior",
+        "teres major & minor", "rhomboids",
+    ],
+    "shoulders": [
+        "anterior deltoid", "lateral deltoid", "rear delt", "rotator cuff",
+    ],
+    "triceps": [
+        "triceps long head", "triceps short head", "triceps medial head",
+    ],
+}
+ 
+CATEGORY_WORD_ALIASES = {
+    "legs": "legs", "leg": "legs",
+    "arms": "arms", "arm": "arms",
+    "torso": "torso", "trunk": "torso",
+    "chest": "chest",
+    "back": "back",
+    "shoulders": "shoulders", "shoulder": "shoulders",
+    "triceps": "triceps", "tricep": "triceps",
+}
+ 
+ 
+def get_category(raw: str):
+    """If the input is a broad body-region/multi-part word (e.g. 'legs',
+    'chest', 'shoulders', 'triceps') or its singular, return that
+    category's key; otherwise None."""
+    key = raw.strip().lower()
+    return CATEGORY_WORD_ALIASES.get(key)
+ 
+ 
+def print_category_prompt(category: str):
+    options = [MUSCLE_DB[k].display_name for k in CATEGORY_GROUPS[category]]
+    print(f"\nWhich muscle in your {category} do you want to train?")
+    print_wrapped(", ".join(options), indent="  ")
+    print()
+ 
+ 
+# ---------------------------------------------------------------------------
+# WORKOUT SPLIT BUILDER
+# A curated list of research-supported weekly training splits, spanning a
+# range of per-muscle training frequencies. Frequency (how many times a
+# muscle is trained per week) is a major, well-supported driver of
+# hypertrophy outcomes, so the split you choose should mainly come down to
+# how many days per week you can realistically train and recover from.
+# ---------------------------------------------------------------------------
+ 
+SPLITS = [
+    {
+        "name": "Full Body (3x/week)",
+        "frequency": "Each muscle trained 3x per week",
+        "schedule": "Mon: Full Body | Wed: Full Body | Fri: Full Body",
+        "rationale": (
+            "Training the whole body roughly every other day is one of "
+            "the most consistently well-supported frequency approaches "
+            "for both strength and hypertrophy: each muscle gets a fresh "
+            "stimulus multiple times per week rather than waiting a full "
+            "week between sessions, while per-session volume per muscle "
+            "stays low enough to recover from before the next session."
+        ),
+    },
+    {
+        "name": "Full Body (3.5x/week average, 2-week alternating cycle)",
+        "frequency": "Each muscle trained an average of 3.5x per week",
+        "schedule": (
+            "Week 1: Mon(A) Wed(B) Fri(A)  |  "
+            "Week 2: Mon(B) Wed(A) Fri(B)  -- repeat"
+        ),
+        "rationale": (
+            "Alternating which full-body session (A or B) leads each "
+            "week nudges the average weekly frequency per muscle slightly "
+            "above a flat 3x/week, without requiring a 4th session every "
+            "single week."
+        ),
+    },
+    {
+        "name": "Upper/Lower (4x/week)",
+        "frequency": "Upper body and lower body each trained 2x per week",
+        "schedule": "Mon: Upper | Tue: Lower | Thu: Upper | Fri: Lower",
+        "rationale": (
+            "A well-supported middle-ground: each muscle group still gets "
+            "hit twice a week, but splitting upper/lower allows more "
+            "total volume per muscle in each individual session than a "
+            "full-body approach."
+        ),
+    },
+    {
+        "name": "Upper/Lower (6x/week)",
+        "frequency": "Upper body and lower body each trained 3x per week",
+        "schedule": (
+            "Mon: Upper | Tue: Lower | Wed: Upper | Thu: Lower | "
+            "Fri: Upper | Sat: Lower"
+        ),
+        "rationale": (
+            "A higher-frequency version of the upper/lower split for "
+            "lifters who recover quickly and prefer more, shorter "
+            "sessions spread across the week over fewer, longer ones."
+        ),
+    },
+    {
+        "name": "Anterior/Posterior (6x/week)",
+        "frequency": (
+            "Anterior chain and posterior chain each trained 3x per week"
+        ),
+        "schedule": (
+            "Mon: Anterior | Tue: Posterior | Wed: Anterior | "
+            "Thu: Posterior | Fri: Anterior | Sat: Posterior"
+        ),
+        "rationale": (
+            "Groups muscles by chain role instead of upper/lower body -- "
+            "anterior (chest, quads, front/side delts, triceps, abs) vs. "
+            "posterior (back, hamstrings, glutes, rear delts, biceps) -- "
+            "which can balance push- and pull-dominant movement patterns "
+            "well across the week at a high per-muscle frequency."
+        ),
+    },
+    {
+        "name": "Push/Pull/Legs (3x/week)",
+        "frequency": "Each muscle group trained 1x per week",
+        "schedule": (
+            "Mon: Push (chest, shoulders, triceps) | "
+            "Tue: Pull (back, biceps) | Wed: Legs  -- rest, repeat"
+        ),
+        "rationale": (
+            "Groups muscles by movement pattern rather than body region; "
+            "simple to program and very popular, though training each "
+            "muscle only once a week is generally considered a less "
+            "optimal frequency for hypertrophy than the higher-frequency "
+            "splits above."
+        ),
+    },
+    {
+        "name": "Push/Pull/Legs x2 (6x/week)",
+        "frequency": "Each muscle group trained 2x per week",
+        "schedule": (
+            "Mon: Push | Tue: Pull | Wed: Legs | "
+            "Thu: Push | Fri: Pull | Sat: Legs"
+        ),
+        "rationale": (
+            "Runs the Push/Pull/Legs rotation twice through the week, "
+            "doubling per-muscle frequency versus the standard PPL split "
+            "while keeping the same simple movement-pattern grouping."
+        ),
+    },
+    {
+        "name": "Bro Split (5x/week)",
+        "frequency": "Each muscle group trained 1x per week",
+        "schedule": (
+            "Mon: Chest | Tue: Back | Wed: Shoulders | "
+            "Thu: Legs | Fri: Arms"
+        ),
+        "rationale": (
+            "Allows a large amount of volume and exercise variety for a "
+            "single muscle group in one session, and remains popular in "
+            "bodybuilding-style training; current research generally "
+            "favors the higher per-muscle frequency splits above for "
+            "hypertrophy specifically, so this suits lifters who "
+            "prioritize session focus/variety over maximum frequency."
+        ),
+    },
+]
+ 
+# Generic words/phrases that mean "show me the splits" (no specific one
+# implied).
+SPLIT_GENERIC_WORDS = {
+    "split", "splits", "training split", "workout split", "split builder",
+    "build a split", "build split", "recommend a split", "recommend split",
+    "workout schedule", "training schedule", "weekly split",
+}
+ 
+_SPLIT_FAMILY_VOCAB = [
+    "full body", "fullbody", "full-body",
+    "upper", "lower", "upper lower", "upper/lower",
+    "anterior", "posterior", "anterior posterior", "anterior/posterior",
+    "push pull legs", "push/pull/legs", "ppl",
+    "bro split", "bro",
+]
+ 
+ 
+def _find_split(name_substring: str):
+    return next(s for s in SPLITS if name_substring in s["name"])
+ 
+ 
+# Day-by-day muscle assignments used to actually build a program once a
+# specific split is chosen. Keyed by the split's exact "name" field.
+#
+# Curation notes:
+#   - "chest" and "upper chest" share a near-identical #1 exercise
+#     (Incline Dumbbell Press), so they're never combined on the same
+#     day; "upper chest"/"lower chest" are reserved for the Bro Split's
+#     dedicated chest day, where splitting the two makes sense.
+#   - "back" and "teres major & minor" share a near-identical #1
+#     exercise (a wide-grip pull-up/pulldown), so they're never combined
+#     either -- "teres major & minor" stays a standalone lookup.
+#   - "neck" and "masseter" are deliberately left out of every template:
+#     they aren't part of any of these splits' actual training
+#     philosophy and would feel arbitrary tacked onto a Push or Leg day.
+#     They remain fully searchable on their own.
+UPPER_TEMPLATE = [
+    "chest", "back", "shoulders", "traps", "biceps", "triceps", "forearms",
+]
+LOWER_TEMPLATE = [
+    "quadriceps", "hamstrings", "glutes", "adductors", "hip flexors",
+    "calves", "tibialis",
+]
+FULL_BODY_TEMPLATE = [
+    "quadriceps", "hamstrings", "calves", "chest", "back", "shoulders",
+    "biceps", "triceps", "abs",
+]
+FULL_BODY_A = ["chest", "back", "quadriceps", "shoulders", "abs", "traps"]
+FULL_BODY_B = [
+    "hamstrings", "glutes", "biceps", "triceps", "calves", "forearms",
+]
+ANTERIOR_TEMPLATE = [
+    "chest", "quadriceps", "anterior deltoid", "triceps", "abs",
+    "obliques", "hip flexors", "tibialis",
+]
+POSTERIOR_TEMPLATE = [
+    "back", "hamstrings", "glutes", "rear delt", "biceps", "lower back",
+    "traps",
+]
+PUSH_TEMPLATE = ["chest", "shoulders", "triceps", "serratus anterior"]
+PULL_TEMPLATE = [
+    "back", "biceps", "rear delt", "traps", "rhomboids", "forearms",
+    "lower back",
+]
+LEGS_TEMPLATE = [
+    "quadriceps", "hamstrings", "glutes", "adductors", "hip flexors",
+    "calves", "tibialis",
+]
+BRO_CHEST = ["upper chest", "lower chest"]
+BRO_BACK = ["back", "traps", "rhomboids", "lower back"]
+BRO_SHOULDERS = ["anterior deltoid", "lateral deltoid", "rear delt", "rotator cuff"]
+BRO_ARMS = ["biceps", "triceps", "brachialis", "brachioradialis", "forearms"]
+ 
+SPLIT_DAY_TEMPLATES = {
+    "Full Body (3x/week)": [
+        ("Monday", FULL_BODY_TEMPLATE),
+        ("Wednesday", FULL_BODY_TEMPLATE),
+        ("Friday", FULL_BODY_TEMPLATE),
+    ],
+    "Full Body (3.5x/week average, 2-week alternating cycle)": [
+        ("Week 1 - Monday (A)", FULL_BODY_A),
+        ("Week 1 - Wednesday (B)", FULL_BODY_B),
+        ("Week 1 - Friday (A)", FULL_BODY_A),
+        ("Week 2 - Monday (B)", FULL_BODY_B),
+        ("Week 2 - Wednesday (A)", FULL_BODY_A),
+        ("Week 2 - Friday (B)", FULL_BODY_B),
+    ],
+    "Upper/Lower (4x/week)": [
+        ("Monday - Upper", UPPER_TEMPLATE),
+        ("Tuesday - Lower", LOWER_TEMPLATE),
+        ("Thursday - Upper", UPPER_TEMPLATE),
+        ("Friday - Lower", LOWER_TEMPLATE),
+    ],
+    "Upper/Lower (6x/week)": [
+        ("Monday - Upper", UPPER_TEMPLATE),
+        ("Tuesday - Lower", LOWER_TEMPLATE),
+        ("Wednesday - Upper", UPPER_TEMPLATE),
+        ("Thursday - Lower", LOWER_TEMPLATE),
+        ("Friday - Upper", UPPER_TEMPLATE),
+        ("Saturday - Lower", LOWER_TEMPLATE),
+    ],
+    "Anterior/Posterior (6x/week)": [
+        ("Monday - Anterior", ANTERIOR_TEMPLATE),
+        ("Tuesday - Posterior", POSTERIOR_TEMPLATE),
+        ("Wednesday - Anterior", ANTERIOR_TEMPLATE),
+        ("Thursday - Posterior", POSTERIOR_TEMPLATE),
+        ("Friday - Anterior", ANTERIOR_TEMPLATE),
+        ("Saturday - Posterior", POSTERIOR_TEMPLATE),
+    ],
+    "Push/Pull/Legs (3x/week)": [
+        ("Monday - Push", PUSH_TEMPLATE),
+        ("Tuesday - Pull", PULL_TEMPLATE),
+        ("Wednesday - Legs", LEGS_TEMPLATE),
+    ],
+    "Push/Pull/Legs x2 (6x/week)": [
+        ("Monday - Push", PUSH_TEMPLATE),
+        ("Tuesday - Pull", PULL_TEMPLATE),
+        ("Wednesday - Legs", LEGS_TEMPLATE),
+        ("Thursday - Push", PUSH_TEMPLATE),
+        ("Friday - Pull", PULL_TEMPLATE),
+        ("Saturday - Legs", LEGS_TEMPLATE),
+    ],
+    "Bro Split (5x/week)": [
+        ("Monday - Chest", BRO_CHEST),
+        ("Tuesday - Back", BRO_BACK),
+        ("Wednesday - Shoulders", BRO_SHOULDERS),
+        ("Thursday - Legs", LEGS_TEMPLATE),
+        ("Friday - Arms", BRO_ARMS),
+    ],
+}
+ 
+# Rest days for each split -- recovery is when muscles actually adapt and
+# rebuild from the training stimulus, so an "optimal" split names its rest
+# days explicitly rather than leaving them implied.
+SPLIT_REST_DAYS = {
+    "Full Body (3x/week)": ["Tuesday", "Thursday", "Saturday", "Sunday"],
+    "Full Body (3.5x/week average, 2-week alternating cycle)": [
+        "Tuesday", "Thursday", "Saturday", "Sunday"
+    ],
+    "Upper/Lower (4x/week)": ["Wednesday", "Saturday", "Sunday"],
+    "Upper/Lower (6x/week)": ["Sunday"],
+    "Anterior/Posterior (6x/week)": ["Sunday"],
+    "Push/Pull/Legs (3x/week)": ["Thursday", "Friday", "Saturday", "Sunday"],
+    "Push/Pull/Legs x2 (6x/week)": ["Sunday"],
+    "Bro Split (5x/week)": ["Saturday", "Sunday"],
+}
+ 
+ 
+def resolve_split(raw: str):
+    """Figure out what the user means by split-related input. Returns:
+      ('exact', split_dict)       -- one specific split identified
+      ('ambiguous', [split_dicts]) -- a family matched, but more than one
+                                       variant fits; caller should ask the
+                                       user to specify which one
+      None                        -- not split-related at all
+    """
+    key = raw.strip().lower()
+ 
+    # A full, exact muscle name/alias is never a split request, even if it
+    # happens to contain "upper" or "lower" as a substring (e.g. "lower
+    # chest", "lower back", "upper chest"). Checking this first protects
+    # those unambiguous muscle phrases from the looser family-keyword
+    # matching below, which only looks for "upper"/"lower" appearing
+    # anywhere in the string.
+    if key in MUSCLE_ALIASES:
+        return None
+ 
+    # Same protection, but for a TYPO of one of those phrases (e.g.
+    # "upper chets" for "upper chest"). Checked directly against just
+    # these specific muscle names (not the full alias list) so this stays
+    # safe and predictable -- a real typo of the full phrase scores 0.9+,
+    # while a bare "upper"/"lower" alone scores well below this cutoff and
+    # correctly falls through to the split logic below.
+    _upper_lower_muscle_phrases = [
+        "upper chest", "upper pecs", "lower chest", "lower pecs",
+        "upper back", "lower back",
+    ]
+    if get_close_matches(key, _upper_lower_muscle_phrases, n=1, cutoff=0.8):
+        return None
+ 
+    # exact match against a full split name
+    exact_names = {s["name"].lower(): s for s in SPLITS}
+    if key in exact_names:
+        return ("exact", exact_names[key])
+ 
+    # Recognized family/frequency vocabulary takes priority over loose
+    # fuzzy-matching against full split names -- otherwise a bare family
+    # word like "full body" can accidentally fuzzy-match only one of its
+    # two variants (whichever happens to be textually shorter/closer)
+    # instead of correctly triggering the ambiguous "which one?" path.
+    vocab = list(SPLIT_GENERIC_WORDS) + _SPLIT_FAMILY_VOCAB
+    corrected = key
+    if key not in vocab:
+        fuzzy = get_close_matches(key, vocab, n=1, cutoff=0.78)
+        if fuzzy:
+            corrected = fuzzy[0]
+ 
+    has_upper_lower = "upper" in corrected or "lower" in corrected
+    has_full_body = any(w in corrected for w in ("full body", "fullbody", "full-body"))
+    has_ppl = any(w in corrected for w in ("ppl", "push pull legs", "push/pull/legs"))
+    has_ant_post = "anterior" in corrected or "posterior" in corrected
+    has_bro = "bro" in corrected
+ 
+    # Check frequency tokens against the ORIGINAL key, not the
+    # fuzzy-corrected string -- typo-correcting a longer phrase (e.g.
+    # "upper lower 6x") can snap it to a shorter vocab entry ("upper
+    # lower"), which would silently drop the frequency token if we only
+    # looked at `corrected`.
+    has_6x = any(t in key for t in ("6x", "x2", "twice"))
+    has_4x = "4x" in key
+    has_35x = "3.5" in key or "alternat" in key
+    has_3x = "3x" in key and not has_35x
+ 
+    if has_upper_lower:
+        if has_4x:
+            return ("exact", _find_split("Upper/Lower (4x"))
+        if has_6x:
+            return ("exact", _find_split("Upper/Lower (6x"))
+        return ("ambiguous", [s for s in SPLITS if "Upper/Lower" in s["name"]])
+ 
+    if has_full_body:
+        if has_35x:
+            return ("exact", _find_split("Full Body (3.5x"))
+        if has_3x:
+            return ("exact", _find_split("Full Body (3x"))
+        return ("ambiguous", [s for s in SPLITS if "Full Body" in s["name"]])
+ 
+    if has_ppl:
+        if has_6x:
+            return ("exact", _find_split("Push/Pull/Legs x2"))
+        if has_3x:
+            return ("exact", _find_split("Push/Pull/Legs (3x"))
+        return ("ambiguous", [s for s in SPLITS if "Push/Pull/Legs" in s["name"]])
+ 
+    if has_ant_post:
+        return ("exact", _find_split("Anterior/Posterior"))  # only one variant
+ 
+    if has_bro:
+        return ("exact", _find_split("Bro Split"))  # only one variant
+ 
+    words = key.split()
+    if (
+        corrected in SPLIT_GENERIC_WORDS
+        or "split" in words
+        or "splits" in words
+    ):
+        return ("ambiguous", SPLITS)
+ 
+    # Fallback: loose fuzzy match against full split names, for input that
+    # doesn't match any recognized family/frequency vocabulary at all
+    # (e.g. a typo'd attempt at typing the whole split name).
+    close = get_close_matches(key, list(exact_names.keys()), n=2, cutoff=0.6)
+    if len(close) == 1:
+        return ("exact", exact_names[close[0]])
+ 
+    return None
+ 
+ 
+def print_splits(splits_to_show):
+    print()
+    print("=" * 80)
+    print("  WORKOUT SPLITS")
+    print("=" * 80)
+    print_wrapped(
+        "Per-muscle training frequency (how often a muscle is trained "
+        "each week) is one of the most consistently well-supported "
+        "drivers of training outcomes, so the best split for you mainly "
+        "comes down to how many days a week you can realistically train "
+        "and recover from.",
+        indent=""
+    )
+    print("-" * 80)
+ 
+    for split in splits_to_show:
+        print(f"\n{split['name']}")
+        print(f"  Frequency: {split['frequency']}")
+        print(f"  Example schedule: {split['schedule']}")
+        print("  Why it works:")
+        print_wrapped(split["rationale"], indent="    ")
+ 
+    print("\n" + "=" * 80)
+    if len(splits_to_show) > 1:
+        # If every option shown shares the same split family (e.g. two
+        # Upper/Lower variants), the only real choice left is frequency --
+        # so ask specifically about that. Otherwise (the full list across
+        # different families) ask more generally which split is wanted.
+        families = {s["name"].split(" (")[0] for s in splits_to_show}
+        if len(families) == 1:
+            print_wrapped(
+                "Which frequency would you like to do -- "
+                "'4x', '6x', '3x', '3.5x', or 'x2'?",
+                indent=""
+            )
+        else:
+            print_wrapped(
+                "Please specify which split you'd like -- name one above "
+                "(e.g. 'upper', 'full body', 'ppl', 'anterior', 'bro "
+                "split') and I'll build the actual exercise program for "
+                "it.",
+                indent=""
+            )
+    print()
+ 
+ 
+def print_program(split: dict):
+    days = SPLIT_DAY_TEMPLATES[split["name"]]
+    num_days = len(days)
+ 
+    print()
+    print("=" * 80)
+    print(f"  YOUR PROGRAM: {split['name'].upper()}")
+    print("=" * 80)
+    print(f"Frequency: {split['frequency']}")
+    print_wrapped(
+        "Below is the #1 ranked exercise for each muscle trained that "
+        "day, with its training protocol. Type any muscle name above at "
+        "any time to see the full ranked list and alternatives for it.",
+        indent=""
+    )
+    print("-" * 80)
+ 
+    for day_label, muscle_keys in days:
+        print(f"\n{day_label}")
+        for mkey in muscle_keys:
+            muscle = MUSCLE_DB[mkey]
+            top_exercise = muscle.exercises[0]
+            protocol = get_protocol(top_exercise.name)
+            print(f"  {muscle.display_name}: {top_exercise.name}")
+            print(f"    -> {protocol}")
+ 
+    rest_days = SPLIT_REST_DAYS.get(split["name"], [])
+    if rest_days:
+        print(f"\nRest: {', '.join(rest_days)}")
+        print_wrapped(
+            "Recovery is when the muscles you trained actually adapt and "
+            "rebuild from the stimulus -- these days are part of the "
+            "program, not time off from it.",
+            indent="  "
+        )
+ 
+    print("\n" + "=" * 80)
+    print()
+    print_wrapped(
+        f"Here is your new split! You picked {split['name']} -- "
+        f"{split['frequency'].lower()}, spread across {num_days} training "
+        f"days. I've built out the full week above: every day, every "
+        f"muscle trained that day, the single best exercise for it, and "
+        f"exactly how to train it.",
+        indent=""
+    )
+    print()
+ 
+ 
+def resolve_pending_frequency(raw: str, candidates: list):
+    """Given a follow-up answer to 'which specific split did you mean',
+    match it against the narrowed set of candidates from the previous
+    ambiguous prompt -- so a bare '4x', '6', '3.5', 'x2', etc. resolves
+    correctly without the user having to repeat the split family name."""
+    key = raw.strip().lower()
+ 
+    # Each group lists every way someone might type that frequency; the
+    # second element is the substring actually present in the split's
+    # name, used to find the matching candidate. Order matters: check
+    # "3.5" before the plain "3" group, since "3" is a substring of "3.5"
+    # and would otherwise match first and steal the answer.
+    freq_groups = [
+        (["3.5x", "3.5"], "3.5x"),
+        (["x2"], "x2"),
+        (["6x", "6"], "6x"),
+        (["4x", "4"], "4x"),
+        (["3x", "3"], "3x"),
+    ]
+    for variants, name_token in freq_groups:
+        if any(v in key for v in variants):
+            for c in candidates:
+                if name_token in c["name"].lower():
+                    return c
+ 
+    exact_names = {s["name"].lower(): s for s in candidates}
+    if key in exact_names:
+        return exact_names[key]
+ 
+    close = get_close_matches(key, list(exact_names.keys()), n=1, cutoff=0.6)
+    if close:
+        return exact_names[close[0]]
+ 
+    return None
+ 
+ 
+_CATEGORY_ANSWER_RULES = {
+    "chest": [
+        (["upper"], "upper chest"),
+        (["lower"], "lower chest"),
+        (["overall", "whole", "general", "normal", "regular", "both"], "chest"),
+    ],
+    "back": [
+        (["lat", "lats", "latissimus"], "back"),
+        (["trap", "traps", "trapezius"], "traps"),
+        (["lower back", "erector", "spinal"], "lower back"),
+        (["serratus"], "serratus anterior"),
+        (["teres"], "teres major & minor"),
+        (["rhomboid"], "rhomboids"),
+        (["overall", "whole", "general", "normal", "regular"], "back"),
+    ],
+    "shoulders": [
+        (["front", "anterior"], "anterior deltoid"),
+        (["side", "lateral"], "lateral deltoid"),
+        (["rear", "posterior"], "rear delt"),
+        (["rotator", "cuff"], "rotator cuff"),
+    ],
+    "triceps": [
+        (["long"], "triceps long head"),
+        (["short", "lateral"], "triceps short head"),
+        (["medial"], "triceps medial head"),
+    ],
+}
+ 
+ 
+def resolve_category_answer(raw: str, category: str):
+    """Resolve a follow-up answer to a category clarification prompt
+    (e.g. 'lower' after being asked which chest muscle) against that
+    specific category's valid options -- checked before the general split
+    system, so a bare word like 'lower' or 'upper' answers the pending
+    chest/back/shoulders/triceps question instead of being hijacked by
+    the Upper/Lower split. Returns a MUSCLE_DB key, or None if the input
+    doesn't look like an answer to this category's question at all."""
+    key = raw.strip().lower()
+ 
+    for keywords, target in _CATEGORY_ANSWER_RULES.get(category, []):
+        if any(kw in key for kw in keywords):
+            return target
+ 
+    # fallback: normal muscle matching, but only accepted if the result
+    # is actually one of this category's valid options (covers legs/arms/
+    # torso, and full-phrase answers like "serratus anterior")
+    valid_keys = set(CATEGORY_GROUPS.get(category, []))
+    normalized = normalize_input(raw)
+    if normalized in valid_keys:
+        return normalized
+ 
+    return None
+ 
+ 
+_UNMATCHED_INPUT_MESSAGES = [
+    "Please enter a muscle.",
+    "Hmm, I didn't catch that -- try naming a muscle, or ask for a workout split.",
+    "That doesn't match anything I know. Try a muscle name (like 'biceps' or 'quads'), or ask for a split.",
+    "Not sure what you mean -- type a muscle you want to train, or ask for a workout split.",
+    "I don't recognize that one. Give me a muscle name, or ask for a split.",
+]
+ 
+ 
+_MUSCLE_INTENT_PHRASES = {
+    "name a muscle", "a muscle", "muscle", "pick a muscle",
+    "choose a muscle", "give me a muscle", "i want a muscle",
+    "muscle please", "i want to name a muscle", "let me name a muscle",
+    "i want to pick a muscle", "help me pick a muscle",
+}
+ 
+ 
+def is_muscle_intent(raw: str) -> bool:
+    """Recognize a phrase like 'name a muscle' -- the user signaling they
+    want to specify a muscle but hasn't named one yet -- with typo
+    tolerance, same as the rest of the program's matching."""
+    key = raw.strip().lower()
+    if key in _MUSCLE_INTENT_PHRASES:
+        return True
+    return bool(get_close_matches(key, _MUSCLE_INTENT_PHRASES, n=1, cutoff=0.8))
+ 
+ 
+def main():
+    print("Welcome to BuildFitness.")
+    print(
+        "Tell me any muscle for a ranked list of the best exercises for "
+        "it -- with the science behind why each one works and exactly "
+        "how to train it -- or ask for a workout split to plan out your "
+        "training week."
+    )
+    print()
+ 
+    pending_split_candidates = None
+    pending_category = None
+ 
+    while True:
+        raw = input("What would you like to do -- name a muscle or ask for a split? ")
+        if raw.strip().lower() in ("quit", "exit", "q"):
+            print("Goodbye!")
+            break
+ 
+        if not raw.strip():
+            print("Please type a muscle name, or ask for a workout split.")
+            continue
+ 
+        # If we just asked "which muscle in your chest/back/shoulders/
+        # triceps did you mean?", try to resolve this answer against that
+        # specific category first -- this must run before the split
+        # system, since answers like "upper"/"lower" would otherwise be
+        # hijacked by the Upper/Lower split.
+        if pending_category is not None:
+            resolved = resolve_category_answer(raw, pending_category)
+            pending_category = None
+            if resolved is not None:
+                print_report(resolved)
+                sys.stdout.flush()
+                print()
+                continue
+            # didn't look like an answer to the pending question -- fall
+            # through and process this input normally below (so asking
+            # for a split, or a completely different muscle, still works)
+ 
+        # If we just asked "which specific split did you mean?", try to
+        # resolve this answer (e.g. a bare "4x") against that narrowed
+        # set first.
+        if pending_split_candidates is not None:
+            resolved = resolve_pending_frequency(raw, pending_split_candidates)
+            pending_split_candidates = None
+            if resolved is not None:
+                print_program(resolved)
+                sys.stdout.flush()
+                continue
+            # didn't look like an answer to the pending question -- fall
+            # through and process this input normally below
+ 
+        if is_muscle_intent(raw):
+            print("Great! Which muscle are you looking for?")
+            continue
+ 
+        split_result = resolve_split(raw)
+        if split_result is not None:
+            kind, payload = split_result
+            if kind == "exact":
+                print_program(payload)
+            else:
+                print_splits(payload)
+                pending_split_candidates = payload
+            sys.stdout.flush()
+            continue
+ 
+        category = get_category(raw)
+        if category is not None:
+            print_category_prompt(category)
+            pending_category = category
+            sys.stdout.flush()
+            continue
+ 
+        muscle_key = normalize_input(raw)
+        if muscle_key is None:
+            print(f"\n{random.choice(_UNMATCHED_INPUT_MESSAGES)}\n")
+            sys.stdout.flush()
+            continue
+ 
+        print_report(muscle_key)
+        sys.stdout.flush()
+        print()
+ 
+ 
+if __name__ == "__main__":
+    main()
+ 
