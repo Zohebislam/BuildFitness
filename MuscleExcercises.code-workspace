@@ -38,6 +38,7 @@ biomechanics concepts, not a citation of one single study):
 """
  
 import random
+import re
 import sys
 from dataclasses import dataclass
 from difflib import get_close_matches
@@ -1714,127 +1715,13 @@ def print_category_prompt(category: str):
  
 # ---------------------------------------------------------------------------
 # WORKOUT SPLIT BUILDER
-# A curated list of research-supported weekly training splits, spanning a
-# range of per-muscle training frequencies. Frequency (how many times a
-# muscle is trained per week) is a major, well-supported driver of
-# hypertrophy outcomes, so the split you choose should mainly come down to
-# how many days per week you can realistically train and recover from.
+# Splits are organized by FAMILY (Full Body, Upper/Lower, Anterior/
+# Posterior, Push/Pull/Legs, Bro Split) rather than a fixed list of preset
+# frequencies. Once a family is chosen, the program asks how many days a
+# week the person actually wants to train and builds the week around that
+# exact number -- cycling through the family's day-type pattern and
+# distributing training/rest days as evenly as possible across the week.
 # ---------------------------------------------------------------------------
- 
-SPLITS = [
-    {
-        "name": "Full Body (3x/week)",
-        "frequency": "Each muscle trained 3x per week",
-        "schedule": "Mon: Full Body | Wed: Full Body | Fri: Full Body",
-        "rationale": (
-            "Training the whole body roughly every other day is one of "
-            "the most consistently well-supported frequency approaches "
-            "for both strength and hypertrophy: each muscle gets a fresh "
-            "stimulus multiple times per week rather than waiting a full "
-            "week between sessions, while per-session volume per muscle "
-            "stays low enough to recover from before the next session."
-        ),
-    },
-    {
-        "name": "Full Body (3.5x/week average, 2-week alternating cycle)",
-        "frequency": "Each muscle trained an average of 3.5x per week",
-        "schedule": (
-            "Week 1: Mon(A) Wed(B) Fri(A)  |  "
-            "Week 2: Mon(B) Wed(A) Fri(B)  -- repeat"
-        ),
-        "rationale": (
-            "Alternating which full-body session (A or B) leads each "
-            "week nudges the average weekly frequency per muscle slightly "
-            "above a flat 3x/week, without requiring a 4th session every "
-            "single week."
-        ),
-    },
-    {
-        "name": "Upper/Lower (4x/week)",
-        "frequency": "Upper body and lower body each trained 2x per week",
-        "schedule": "Mon: Upper | Tue: Lower | Thu: Upper | Fri: Lower",
-        "rationale": (
-            "A well-supported middle-ground: each muscle group still gets "
-            "hit twice a week, but splitting upper/lower allows more "
-            "total volume per muscle in each individual session than a "
-            "full-body approach."
-        ),
-    },
-    {
-        "name": "Upper/Lower (6x/week)",
-        "frequency": "Upper body and lower body each trained 3x per week",
-        "schedule": (
-            "Mon: Upper | Tue: Lower | Wed: Upper | Thu: Lower | "
-            "Fri: Upper | Sat: Lower"
-        ),
-        "rationale": (
-            "A higher-frequency version of the upper/lower split for "
-            "lifters who recover quickly and prefer more, shorter "
-            "sessions spread across the week over fewer, longer ones."
-        ),
-    },
-    {
-        "name": "Anterior/Posterior (6x/week)",
-        "frequency": (
-            "Anterior chain and posterior chain each trained 3x per week"
-        ),
-        "schedule": (
-            "Mon: Anterior | Tue: Posterior | Wed: Anterior | "
-            "Thu: Posterior | Fri: Anterior | Sat: Posterior"
-        ),
-        "rationale": (
-            "Groups muscles by chain role instead of upper/lower body -- "
-            "anterior (chest, quads, front/side delts, triceps, abs) vs. "
-            "posterior (back, hamstrings, glutes, rear delts, biceps) -- "
-            "which can balance push- and pull-dominant movement patterns "
-            "well across the week at a high per-muscle frequency."
-        ),
-    },
-    {
-        "name": "Push/Pull/Legs (3x/week)",
-        "frequency": "Each muscle group trained 1x per week",
-        "schedule": (
-            "Mon: Push (chest, shoulders, triceps) | "
-            "Tue: Pull (back, biceps) | Wed: Legs  -- rest, repeat"
-        ),
-        "rationale": (
-            "Groups muscles by movement pattern rather than body region; "
-            "simple to program and very popular, though training each "
-            "muscle only once a week is generally considered a less "
-            "optimal frequency for hypertrophy than the higher-frequency "
-            "splits above."
-        ),
-    },
-    {
-        "name": "Push/Pull/Legs x2 (6x/week)",
-        "frequency": "Each muscle group trained 2x per week",
-        "schedule": (
-            "Mon: Push | Tue: Pull | Wed: Legs | "
-            "Thu: Push | Fri: Pull | Sat: Legs"
-        ),
-        "rationale": (
-            "Runs the Push/Pull/Legs rotation twice through the week, "
-            "doubling per-muscle frequency versus the standard PPL split "
-            "while keeping the same simple movement-pattern grouping."
-        ),
-    },
-    {
-        "name": "Bro Split (5x/week)",
-        "frequency": "Each muscle group trained 1x per week",
-        "schedule": (
-            "Mon: Chest | Tue: Back | Wed: Shoulders | "
-            "Thu: Legs | Fri: Arms"
-        ),
-        "rationale": (
-            "Allows a large amount of volume and exercise variety for a "
-            "single muscle group in one session, and remains popular in "
-            "bodybuilding-style training; current research generally "
-            "favors the higher per-muscle frequency splits above for "
-            "hypertrophy specifically, so this suits lifters who "
-            "prioritize session focus/variety over maximum frequency."
-        ),
-    },
-]
  
 # Generic words/phrases that mean "show me the splits" (no specific one
 # implied).
@@ -1850,11 +1737,11 @@ _SPLIT_FAMILY_VOCAB = [
     "anterior", "posterior", "anterior posterior", "anterior/posterior",
     "push pull legs", "push/pull/legs", "ppl",
     "bro split", "bro",
+    "arnold", "arnold split",
+    "ppl x arnold", "ppl x arnold split", "push pull legs x arnold",
+    "push pull legs x arnold split", "arnold hybrid",
 ]
  
- 
-def _find_split(name_substring: str):
-    return next(s for s in SPLITS if name_substring in s["name"])
  
  
 # Day-by-day muscle assignments used to actually build a program once a
@@ -1909,88 +1796,149 @@ BRO_BACK = ["back", "traps", "rhomboids", "lower back"]
 BRO_SHOULDERS = ["anterior deltoid", "lateral deltoid", "rear delt", "rotator cuff"]
 BRO_ARMS = ["biceps", "triceps", "brachialis", "brachioradialis", "forearms"]
  
-SPLIT_DAY_TEMPLATES = {
-    "Full Body (3x/week)": [
-        ("Monday", FULL_BODY_TEMPLATE),
-        ("Wednesday", FULL_BODY_TEMPLATE),
-        ("Friday", FULL_BODY_TEMPLATE),
-    ],
-    "Full Body (3.5x/week average, 2-week alternating cycle)": [
-        ("Week 1 - Monday (A)", FULL_BODY_A),
-        ("Week 1 - Wednesday (B)", FULL_BODY_B),
-        ("Week 1 - Friday (A)", FULL_BODY_A),
-        ("Week 2 - Monday (B)", FULL_BODY_B),
-        ("Week 2 - Wednesday (A)", FULL_BODY_A),
-        ("Week 2 - Friday (B)", FULL_BODY_B),
-    ],
-    "Upper/Lower (4x/week)": [
-        ("Monday - Upper", UPPER_TEMPLATE),
-        ("Tuesday - Lower", LOWER_TEMPLATE),
-        ("Thursday - Upper", UPPER_TEMPLATE),
-        ("Friday - Lower", LOWER_TEMPLATE),
-    ],
-    "Upper/Lower (6x/week)": [
-        ("Monday - Upper", UPPER_TEMPLATE),
-        ("Tuesday - Lower", LOWER_TEMPLATE),
-        ("Wednesday - Upper", UPPER_TEMPLATE),
-        ("Thursday - Lower", LOWER_TEMPLATE),
-        ("Friday - Upper", UPPER_TEMPLATE),
-        ("Saturday - Lower", LOWER_TEMPLATE),
-    ],
-    "Anterior/Posterior (6x/week)": [
-        ("Monday - Anterior", ANTERIOR_TEMPLATE),
-        ("Tuesday - Posterior", POSTERIOR_TEMPLATE),
-        ("Wednesday - Anterior", ANTERIOR_TEMPLATE),
-        ("Thursday - Posterior", POSTERIOR_TEMPLATE),
-        ("Friday - Anterior", ANTERIOR_TEMPLATE),
-        ("Saturday - Posterior", POSTERIOR_TEMPLATE),
-    ],
-    "Push/Pull/Legs (3x/week)": [
-        ("Monday - Push", PUSH_TEMPLATE),
-        ("Tuesday - Pull", PULL_TEMPLATE),
-        ("Wednesday - Legs", LEGS_TEMPLATE),
-    ],
-    "Push/Pull/Legs x2 (6x/week)": [
-        ("Monday - Push", PUSH_TEMPLATE),
-        ("Tuesday - Pull", PULL_TEMPLATE),
-        ("Wednesday - Legs", LEGS_TEMPLATE),
-        ("Thursday - Push", PUSH_TEMPLATE),
-        ("Friday - Pull", PULL_TEMPLATE),
-        ("Saturday - Legs", LEGS_TEMPLATE),
-    ],
-    "Bro Split (5x/week)": [
-        ("Monday - Chest", BRO_CHEST),
-        ("Tuesday - Back", BRO_BACK),
-        ("Wednesday - Shoulders", BRO_SHOULDERS),
-        ("Thursday - Legs", LEGS_TEMPLATE),
-        ("Friday - Arms", BRO_ARMS),
-    ],
+# Antagonist-pairing day templates for the Arnold-style splits below.
+CHEST_BACK_TEMPLATE = ["chest", "back", "traps", "rhomboids"]
+SHOULDERS_ARMS_TEMPLATE = BRO_SHOULDERS + BRO_ARMS
+ 
+SPLIT_FAMILIES = {
+    "full_body": {
+        "display_name": "Full Body",
+        "description": (
+            "Trains the whole body in every session, alternating two "
+            "slightly different lineups (A/B) for variety so back-to-back "
+            "sessions don't repeat the exact same exercises. Training the "
+            "whole body frequently is one of the most consistently "
+            "well-supported approaches for both strength and hypertrophy."
+        ),
+        "pattern": [
+            ("Full Body A", FULL_BODY_A), ("Full Body B", FULL_BODY_B),
+        ],
+    },
+    "upper_lower": {
+        "display_name": "Upper/Lower",
+        "description": (
+            "Alternates upper-body and lower-body sessions. A "
+            "well-supported middle ground: each region still gets "
+            "trained often, but splitting upper/lower allows more total "
+            "volume per muscle in each individual session than training "
+            "the whole body every time."
+        ),
+        "pattern": [("Upper", UPPER_TEMPLATE), ("Lower", LOWER_TEMPLATE)],
+    },
+    "anterior_posterior": {
+        "display_name": "Anterior/Posterior",
+        "description": (
+            "Groups muscles by chain role instead of upper/lower body -- "
+            "anterior (chest, quads, front delt, triceps, abs) vs. "
+            "posterior (back, hamstrings, glutes, rear delt, biceps) -- "
+            "which can balance push- and pull-dominant movement patterns "
+            "well across the week."
+        ),
+        "pattern": [
+            ("Anterior", ANTERIOR_TEMPLATE), ("Posterior", POSTERIOR_TEMPLATE),
+        ],
+    },
+    "ppl": {
+        "display_name": "Push/Pull/Legs",
+        "description": (
+            "Groups muscles by movement pattern: Push (chest, shoulders, "
+            "triceps), Pull (back, biceps), and Legs. Simple to program "
+            "and very popular -- the more days a week you give it, the "
+            "more times the rotation repeats and the higher each "
+            "muscle's weekly frequency gets."
+        ),
+        "pattern": [
+            ("Push", PUSH_TEMPLATE), ("Pull", PULL_TEMPLATE),
+            ("Legs", LEGS_TEMPLATE),
+        ],
+    },
+    "bro_split": {
+        "display_name": "Bro Split",
+        "description": (
+            "One dedicated day per muscle group (Chest, Back, Shoulders, "
+            "Legs, Arms), allowing a large amount of volume and exercise "
+            "variety in a single session. Popular in bodybuilding-style "
+            "training, though each muscle is trained less often per week "
+            "than the other splits here unless the rotation repeats."
+        ),
+        "pattern": [
+            ("Chest", BRO_CHEST), ("Back", BRO_BACK),
+            ("Shoulders", BRO_SHOULDERS), ("Legs", LEGS_TEMPLATE),
+            ("Arms", BRO_ARMS),
+        ],
+    },
+    "arnold_split": {
+        "display_name": "Arnold Split",
+        "description": (
+            "A classic bodybuilding split popularized by Arnold "
+            "Schwarzenegger: Chest & Back, then Shoulders & Arms, then "
+            "Legs, repeating. Pairing opposing muscle groups (like "
+            "chest and back) in the same session allows very high "
+            "volume per muscle while one side rests as the other works."
+        ),
+        "pattern": [
+            ("Chest & Back", CHEST_BACK_TEMPLATE),
+            ("Shoulders & Arms", SHOULDERS_ARMS_TEMPLATE),
+            ("Legs", LEGS_TEMPLATE),
+        ],
+    },
+    "ppl_arnold_split": {
+        "display_name": "Push/Pull/Legs x Arnold Split",
+        "description": (
+            "A hybrid: standard Push/Pull/Legs first, then Arnold-style "
+            "antagonist pairings (Shoulders & Arms, then Chest & Back), "
+            "then one more Legs day before the rotation repeats. "
+            "Combines the simplicity of movement-pattern grouping with "
+            "the high per-session volume of antagonist pairing."
+        ),
+        "pattern": [
+            ("Push", PUSH_TEMPLATE),
+            ("Pull", PULL_TEMPLATE),
+            ("Legs", LEGS_TEMPLATE),
+            ("Shoulders & Arms", SHOULDERS_ARMS_TEMPLATE),
+            ("Chest & Back", CHEST_BACK_TEMPLATE),
+            ("Legs", LEGS_TEMPLATE),
+        ],
+    },
 }
  
-# Rest days for each split -- recovery is when muscles actually adapt and
-# rebuild from the training stimulus, so an "optimal" split names its rest
-# days explicitly rather than leaving them implied.
-SPLIT_REST_DAYS = {
-    "Full Body (3x/week)": ["Tuesday", "Thursday", "Saturday", "Sunday"],
-    "Full Body (3.5x/week average, 2-week alternating cycle)": [
-        "Tuesday", "Thursday", "Saturday", "Sunday"
-    ],
-    "Upper/Lower (4x/week)": ["Wednesday", "Saturday", "Sunday"],
-    "Upper/Lower (6x/week)": ["Sunday"],
-    "Anterior/Posterior (6x/week)": ["Sunday"],
-    "Push/Pull/Legs (3x/week)": ["Thursday", "Friday", "Saturday", "Sunday"],
-    "Push/Pull/Legs x2 (6x/week)": ["Sunday"],
-    "Bro Split (5x/week)": ["Saturday", "Sunday"],
-}
+WEEKDAYS = [
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    "Sunday",
+]
+ 
+ 
+def build_weekly_schedule(family_key: str, num_days: int):
+    """Cycle through the family's day-type pattern for exactly num_days
+    training days, then distribute those training days as evenly as
+    possible across the 7-day week (rather than clumping them at the
+    start), with every other day marked as rest. Returns a list of
+    (weekday_name, day_type_or_None, muscle_keys_or_None) tuples."""
+    pattern = SPLIT_FAMILIES[family_key]["pattern"]
+    training_days = [pattern[i % len(pattern)] for i in range(num_days)]
+ 
+    schedule = []
+    training_index = 0
+    for i in range(7):
+        # Even-distribution check that starts from Monday (i=0) rather
+        # than clustering toward the end of the week.
+        is_training_day = (i * num_days) % 7 < num_days
+        if is_training_day and training_index < len(training_days):
+            day_type, muscle_keys = training_days[training_index]
+            schedule.append((WEEKDAYS[i], day_type, muscle_keys))
+            training_index += 1
+        else:
+            schedule.append((WEEKDAYS[i], None, None))
+    return schedule
  
  
 def resolve_split(raw: str):
     """Figure out what the user means by split-related input. Returns:
-      ('exact', split_dict)       -- one specific split identified
-      ('ambiguous', [split_dicts]) -- a family matched, but more than one
-                                       variant fits; caller should ask the
-                                       user to specify which one
-      None                        -- not split-related at all
+      family_key (str) -- one of SPLIT_FAMILIES' keys, unambiguously
+                           identified (e.g. 'upper_lower')
+      "all"            -- generic request; show every family
+      None             -- not split-related at all (defer to the muscle
+                           lookup system)
     """
     key = raw.strip().lower()
  
@@ -2016,16 +1964,7 @@ def resolve_split(raw: str):
     if get_close_matches(key, _upper_lower_muscle_phrases, n=1, cutoff=0.8):
         return None
  
-    # exact match against a full split name
-    exact_names = {s["name"].lower(): s for s in SPLITS}
-    if key in exact_names:
-        return ("exact", exact_names[key])
- 
-    # Recognized family/frequency vocabulary takes priority over loose
-    # fuzzy-matching against full split names -- otherwise a bare family
-    # word like "full body" can accidentally fuzzy-match only one of its
-    # two variants (whichever happens to be textually shorter/closer)
-    # instead of correctly triggering the ambiguous "which one?" path.
+    # Typo-correct against the family vocabulary before keyword logic.
     vocab = list(SPLIT_GENERIC_WORDS) + _SPLIT_FAMILY_VOCAB
     corrected = key
     if key not in vocab:
@@ -2033,48 +1972,27 @@ def resolve_split(raw: str):
         if fuzzy:
             corrected = fuzzy[0]
  
-    has_upper_lower = "upper" in corrected or "lower" in corrected
-    has_full_body = any(w in corrected for w in ("full body", "fullbody", "full-body"))
-    has_ppl = any(w in corrected for w in ("ppl", "push pull legs", "push/pull/legs"))
-    has_ant_post = "anterior" in corrected or "posterior" in corrected
-    has_bro = "bro" in corrected
+    # Check "arnold" before the plain ppl/bro checks below -- otherwise
+    # "push pull legs x arnold" would get swallowed by the plain PPL
+    # match before ever being recognized as the hybrid. Checked against
+    # the ORIGINAL key (not `corrected`) for the ppl/push/pull/legs
+    # signal, same reasoning as the frequency-token protection elsewhere:
+    # fuzzy-correcting a longer phrase can silently drop part of it.
+    if "arnold" in corrected:
+        if any(w in key for w in ("ppl", "push", "pull", "legs")):
+            return "ppl_arnold_split"
+        return "arnold_split"
  
-    # Check frequency tokens against the ORIGINAL key, not the
-    # fuzzy-corrected string -- typo-correcting a longer phrase (e.g.
-    # "upper lower 6x") can snap it to a shorter vocab entry ("upper
-    # lower"), which would silently drop the frequency token if we only
-    # looked at `corrected`.
-    has_6x = any(t in key for t in ("6x", "x2", "twice"))
-    has_4x = "4x" in key
-    has_35x = "3.5" in key or "alternat" in key
-    has_3x = "3x" in key and not has_35x
- 
-    if has_upper_lower:
-        if has_4x:
-            return ("exact", _find_split("Upper/Lower (4x"))
-        if has_6x:
-            return ("exact", _find_split("Upper/Lower (6x"))
-        return ("ambiguous", [s for s in SPLITS if "Upper/Lower" in s["name"]])
- 
-    if has_full_body:
-        if has_35x:
-            return ("exact", _find_split("Full Body (3.5x"))
-        if has_3x:
-            return ("exact", _find_split("Full Body (3x"))
-        return ("ambiguous", [s for s in SPLITS if "Full Body" in s["name"]])
- 
-    if has_ppl:
-        if has_6x:
-            return ("exact", _find_split("Push/Pull/Legs x2"))
-        if has_3x:
-            return ("exact", _find_split("Push/Pull/Legs (3x"))
-        return ("ambiguous", [s for s in SPLITS if "Push/Pull/Legs" in s["name"]])
- 
-    if has_ant_post:
-        return ("exact", _find_split("Anterior/Posterior"))  # only one variant
- 
-    if has_bro:
-        return ("exact", _find_split("Bro Split"))  # only one variant
+    if "upper" in corrected or "lower" in corrected:
+        return "upper_lower"
+    if any(w in corrected for w in ("full body", "fullbody", "full-body")):
+        return "full_body"
+    if any(w in corrected for w in ("ppl", "push pull legs", "push/pull/legs")):
+        return "ppl"
+    if "anterior" in corrected or "posterior" in corrected:
+        return "anterior_posterior"
+    if "bro" in corrected:
+        return "bro_split"
  
     words = key.split()
     if (
@@ -2082,73 +2000,59 @@ def resolve_split(raw: str):
         or "split" in words
         or "splits" in words
     ):
-        return ("ambiguous", SPLITS)
- 
-    # Fallback: loose fuzzy match against full split names, for input that
-    # doesn't match any recognized family/frequency vocabulary at all
-    # (e.g. a typo'd attempt at typing the whole split name).
-    close = get_close_matches(key, list(exact_names.keys()), n=2, cutoff=0.6)
-    if len(close) == 1:
-        return ("exact", exact_names[close[0]])
+        return "all"
  
     return None
  
  
-def print_splits(splits_to_show):
+def print_split_overview(family_keys):
+    """Print the description(s) for the given split family key(s) -- a
+    single family when one was unambiguously named, or all of them for a
+    generic 'split' request."""
     print()
     print("=" * 80)
-    print("  WORKOUT SPLITS")
+    if len(family_keys) == 1:
+        print(f"  {SPLIT_FAMILIES[family_keys[0]]['display_name'].upper()}")
+    else:
+        print("  WORKOUT SPLITS")
     print("=" * 80)
-    print_wrapped(
-        "Per-muscle training frequency (how often a muscle is trained "
-        "each week) is one of the most consistently well-supported "
-        "drivers of training outcomes, so the best split for you mainly "
-        "comes down to how many days a week you can realistically train "
-        "and recover from.",
-        indent=""
-    )
-    print("-" * 80)
+    if len(family_keys) > 1:
+        print_wrapped(
+            "Which of these fits your week? Once you pick one, I'll ask "
+            "how many days you want to train and build the exact program "
+            "around that number.",
+            indent=""
+        )
+        print("-" * 80)
  
-    for split in splits_to_show:
-        print(f"\n{split['name']}")
-        print(f"  Frequency: {split['frequency']}")
-        print(f"  Example schedule: {split['schedule']}")
-        print("  Why it works:")
-        print_wrapped(split["rationale"], indent="    ")
+    for fk in family_keys:
+        fam = SPLIT_FAMILIES[fk]
+        if len(family_keys) > 1:
+            print(f"\n{fam['display_name']}")
+        print_wrapped(fam["description"], indent="  " if len(family_keys) > 1 else "")
  
     print("\n" + "=" * 80)
-    if len(splits_to_show) > 1:
-        # If every option shown shares the same split family (e.g. two
-        # Upper/Lower variants), the only real choice left is frequency --
-        # so ask specifically about that. Otherwise (the full list across
-        # different families) ask more generally which split is wanted.
-        families = {s["name"].split(" (")[0] for s in splits_to_show}
-        if len(families) == 1:
-            print_wrapped(
-                "Which frequency would you like to do -- "
-                "'4x', '6x', '3x', '3.5x', or 'x2'?",
-                indent=""
-            )
-        else:
-            print_wrapped(
-                "Please specify which split you'd like -- name one above "
-                "(e.g. 'upper', 'full body', 'ppl', 'anterior', 'bro "
-                "split') and I'll build the actual exercise program for "
-                "it.",
-                indent=""
-            )
     print()
  
  
-def print_program(split: dict):
-    days = SPLIT_DAY_TEMPLATES[split["name"]]
-    num_days = len(days)
+def get_split_followup_prompt(family_keys):
+    """Return the input-prompt text to use for the NEXT input, given the
+    family key(s) just shown -- so the follow-up question replaces the
+    standard prompt entirely instead of being printed as an extra line
+    before it."""
+    if len(family_keys) > 1:
+        return "What split would you like to pick? "
+    return "How many days a week do you want to workout? "
+ 
+ 
+def print_program(family_key: str, num_days: int):
+    fam = SPLIT_FAMILIES[family_key]
+    schedule = build_weekly_schedule(family_key, num_days)
  
     print()
     print("=" * 80)
-    print(f"  YOUR PROGRAM: {split['name'].upper()}")
+    print(f"  YOUR PROGRAM: {fam['display_name'].upper()} -- {num_days} DAYS/WEEK")
     print("=" * 80)
-    print(f"Frequency: {split['frequency']}")
     print_wrapped(
         "Below is the #1 ranked exercise for each muscle trained that "
         "day, with its training protocol. Type any muscle name above at "
@@ -2157,8 +2061,12 @@ def print_program(split: dict):
     )
     print("-" * 80)
  
-    for day_label, muscle_keys in days:
-        print(f"\n{day_label}")
+    rest_days = []
+    for weekday, day_type, muscle_keys in schedule:
+        if day_type is None:
+            rest_days.append(weekday)
+            continue
+        print(f"\n{weekday} - {day_type}")
         for mkey in muscle_keys:
             muscle = MUSCLE_DB[mkey]
             top_exercise = muscle.exercises[0]
@@ -2166,7 +2074,6 @@ def print_program(split: dict):
             print(f"  {muscle.display_name}: {top_exercise.name}")
             print(f"    -> {protocol}")
  
-    rest_days = SPLIT_REST_DAYS.get(split["name"], [])
     if rest_days:
         print(f"\nRest: {', '.join(rest_days)}")
         print_wrapped(
@@ -2178,51 +2085,30 @@ def print_program(split: dict):
  
     print("\n" + "=" * 80)
     print()
+    day_word = "day" if num_days == 1 else "days"
     print_wrapped(
-        f"Here is your new split! You picked {split['name']} -- "
-        f"{split['frequency'].lower()}, spread across {num_days} training "
-        f"days. I've built out the full week above: every day, every "
-        f"muscle trained that day, the single best exercise for it, and "
-        f"exactly how to train it.",
+        f"Here is your new split! You picked {fam['display_name']} "
+        f"training {num_days} {day_word} a week. I've built out the full "
+        f"week above: every day, every muscle trained that day, the "
+        f"single best exercise for it, and exactly how to train it.",
         indent=""
     )
     print()
  
  
-def resolve_pending_frequency(raw: str, candidates: list):
-    """Given a follow-up answer to 'which specific split did you mean',
-    match it against the narrowed set of candidates from the previous
-    ambiguous prompt -- so a bare '4x', '6', '3.5', 'x2', etc. resolves
-    correctly without the user having to repeat the split family name."""
-    key = raw.strip().lower()
- 
-    # Each group lists every way someone might type that frequency; the
-    # second element is the substring actually present in the split's
-    # name, used to find the matching candidate. Order matters: check
-    # "3.5" before the plain "3" group, since "3" is a substring of "3.5"
-    # and would otherwise match first and steal the answer.
-    freq_groups = [
-        (["3.5x", "3.5"], "3.5x"),
-        (["x2"], "x2"),
-        (["6x", "6"], "6x"),
-        (["4x", "4"], "4x"),
-        (["3x", "3"], "3x"),
-    ]
-    for variants, name_token in freq_groups:
-        if any(v in key for v in variants):
-            for c in candidates:
-                if name_token in c["name"].lower():
-                    return c
- 
-    exact_names = {s["name"].lower(): s for s in candidates}
-    if key in exact_names:
-        return exact_names[key]
- 
-    close = get_close_matches(key, list(exact_names.keys()), n=1, cutoff=0.6)
-    if close:
-        return exact_names[close[0]]
- 
+def parse_day_count(raw: str):
+    """Extract a number of training days (1-7) from a free-text answer to
+    'how many days a week do you want to workout?' -- accepts a bare
+    number ('4') or a natural phrase ('4 days', '4 days a week', etc.).
+    Returns the integer if a valid 1-7 value is found, otherwise None."""
+    match = re.search(r"-?\d+", raw)
+    if not match:
+        return None
+    n = int(match.group())
+    if 1 <= n <= 7:
+        return n
     return None
+ 
  
  
 _CATEGORY_ANSWER_RULES = {
@@ -2316,11 +2202,14 @@ def main():
     )
     print()
  
-    pending_split_candidates = None
+    pending_days_family = None
     pending_category = None
+    default_prompt = "What would you like to do -- name a muscle or ask for a split? "
+    next_prompt = default_prompt
  
     while True:
-        raw = input("What would you like to do -- name a muscle or ask for a split? ")
+        raw = input(next_prompt)
+        next_prompt = default_prompt
         if raw.strip().lower() in ("quit", "exit", "q"):
             print("Goodbye!")
             break
@@ -2346,31 +2235,37 @@ def main():
             # through and process this input normally below (so asking
             # for a split, or a completely different muscle, still works)
  
-        # If we just asked "which specific split did you mean?", try to
-        # resolve this answer (e.g. a bare "4x") against that narrowed
-        # set first.
-        if pending_split_candidates is not None:
-            resolved = resolve_pending_frequency(raw, pending_split_candidates)
-            pending_split_candidates = None
-            if resolved is not None:
-                print_program(resolved)
+        # If we just asked "how many days a week do you want to workout?"
+        # for a specific split family, try to parse a day count first.
+        if pending_days_family is not None:
+            day_count = parse_day_count(raw)
+            if day_count is not None:
+                print_program(pending_days_family, day_count)
+                pending_days_family = None
                 sys.stdout.flush()
                 continue
-            # didn't look like an answer to the pending question -- fall
-            # through and process this input normally below
+            # A number was given but it's outside 1-7 -- ask again rather
+            # than silently abandoning the split they already chose.
+            if re.search(r"\d+", raw):
+                print("\nPlease pick a number of days between 1 and 7.\n")
+                sys.stdout.flush()
+                next_prompt = "How many days a week do you want to workout? "
+                continue
+            # No number at all -- treat as a fresh input instead (a new
+            # split, a muscle name, etc.)
+            pending_days_family = None
  
         if is_muscle_intent(raw):
-            print("Great! Which muscle are you looking for?")
+            next_prompt = "Great! Which muscle are you looking for? "
             continue
  
         split_result = resolve_split(raw)
         if split_result is not None:
-            kind, payload = split_result
-            if kind == "exact":
-                print_program(payload)
-            else:
-                print_splits(payload)
-                pending_split_candidates = payload
+            family_keys = list(SPLIT_FAMILIES.keys()) if split_result == "all" else [split_result]
+            print_split_overview(family_keys)
+            next_prompt = get_split_followup_prompt(family_keys)
+            if len(family_keys) == 1:
+                pending_days_family = family_keys[0]
             sys.stdout.flush()
             continue
  
