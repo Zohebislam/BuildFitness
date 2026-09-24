@@ -2318,9 +2318,12 @@ def main():
  
     pending_split_candidates = None
     pending_category = None
+    default_prompt = "What would you like to do -- name a muscle or ask for a split? "
+    next_prompt = default_prompt
  
     while True:
-        raw = input("What would you like to do -- name a muscle or ask for a split? ")
+        raw = input(next_prompt)
+        next_prompt = default_prompt
         if raw.strip().lower() in ("quit", "exit", "q"):
             print("Goodbye!")
             break
@@ -2360,7 +2363,7 @@ def main():
             # through and process this input normally below
  
         if is_muscle_intent(raw):
-            print("Great! Which muscle are you looking for?")
+            next_prompt = "Great! Which muscle are you looking for? "
             continue
  
         split_result = resolve_split(raw)
