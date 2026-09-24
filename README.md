@@ -79,29 +79,31 @@ tailored protocol instead, since they don't fit a normal rep scheme.
 ## Workout split builder
 
 Ask for a "split" (or "workout split," "training schedule," etc.) to see
-the full list of research-supported weekly training splits — Full Body,
-Upper/Lower, Anterior/Posterior, Push/Pull/Legs, and Bro Split — at
-different weekly frequencies, each with an example schedule and the
-reasoning behind it.
+the full list of split families — **Full Body, Upper/Lower,
+Anterior/Posterior, Push/Pull/Legs, Bro Split, Arnold Split, and
+Push/Pull/Legs x Arnold Split** — each with a description of how it
+works.
 
-You can also name a specific split family directly (e.g. `upper`,
-`lower`, `ppl`, `full body`, `anterior`, `bro split`), typos included
-(`fullbdoy`, `aterior`, `bro splt` all still work). These split-related
-words always take priority over any similarly-spelled muscle name —
-typing `upper` always means the Upper/Lower split, never "upper chest."
+You can also name a specific family directly (e.g. `upper`, `ppl`,
+`full body`, `anterior`, `bro split`, `arnold`, `ppl x arnold`), typos
+included (`fullbdoy`, `aterior`, `bro splt` all still work). These
+split-related words always take priority over any similarly-spelled
+muscle name — typing `upper` always means the Upper/Lower split, never
+"upper chest."
 
-If a family has more than one frequency variant (e.g. Upper/Lower has a
-4x/week and a 6x/week version), the program asks which one you mean and
-remembers that you're mid-question — so your next answer (just `4x`,
-`6`, `3.5`, `x2`, etc.) resolves correctly on its own, without needing
-to repeat the split name.
+**Every split works the same way now: there's no fixed frequency.**
+Once you name a family, the program asks **"How many days a week do you
+want to workout?"** — any number from 1 to 7 — and builds the week
+around exactly that. It cycles through the family's day-type pattern
+(e.g. Upper/Lower alternates Upper, Lower, Upper, Lower...) for however
+many training days you asked for, then spreads the remaining days as
+rest as evenly as possible across the week, starting from Monday.
 
-Once a single specific split is identified, the program builds an
-**actual program**: for every training day in that split's schedule, it
-picks the #1-ranked exercise for each muscle trained that day (straight
-from the same database used for individual muscle lookups) along with
-its training protocol — a complete, ready-to-follow week, not just a
-description of the split.
+Once you give a day count, the program builds an **actual program**:
+for every training day, it picks the #1-ranked exercise for each muscle
+trained that day (straight from the same database used for individual
+muscle lookups) along with its training protocol — a complete,
+ready-to-follow week, not just a description of the split.
 
 ## Coverage
 

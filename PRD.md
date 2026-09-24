@@ -82,12 +82,12 @@ clinical/rehab exercise prescription.
 
 ### 5.2 Muscle Coverage
 
-The database (`MUSCLE_DB`) must include, at minimum, the following 30
+The database (`MUSCLE_DB`) must include, at minimum, the following 34
 muscles/muscle groups, each as an independently addressable entry:
 
 Chest, Upper Chest, Lower Chest, Back (Lats), Traps, Serratus Anterior,
-Teres Major & Minor, Rotator Cuff, Shoulders (overall), Anterior
-Deltoid, Lateral Deltoid, Rear Deltoid, Biceps, Brachialis,
+Teres Major & Minor, Rhomboids, Rotator Cuff, Shoulders (overall),
+Anterior Deltoid, Lateral Deltoid, Rear Deltoid, Biceps, Brachialis,
 Brachioradialis, Triceps (overall), Triceps Long Head, Triceps Short
 (Lateral) Head, Triceps Medial Head, Forearms, Abs, Obliques, Lower
 Back, Quadriceps, Hamstrings, Biceps Femoris, Glutes, Hip Flexors,
@@ -127,13 +127,13 @@ Adductors, Calves, Tibialis, Neck, Masseter.
 
 | ID | Requirement |
 |----|-------------|
-| FR-18 | The user can request a workout split via natural trigger phrases (`split`, `splits`, `workout split`, `training schedule`, etc.). |
-| FR-19 | The system provides eight pre-defined, research-referenced splits across five families: Full Body (3x/week, 3.5x/week average), Upper/Lower (4x/week, 6x/week), Anterior/Posterior (6x/week), Push/Pull/Legs (3x/week, 6x/week), and Bro Split (5x/week). |
-| FR-20 | Each split displays its per-muscle frequency, an example weekly schedule, and a rationale for when/why it's effective. |
-| FR-21 | The user can name a split family directly (`upper`, `lower`, `ppl`, `full body`, `anterior`, `posterior`, `bro split`) to filter straight to that family, with typo tolerance. |
-| FR-22 | Split-related words always take priority over any identically- or similarly-spelled muscle name (e.g. bare `upper` always resolves to the Upper/Lower split, never to "Upper Chest"). |
-| FR-23 | If a matched family has more than one frequency variant, the system asks the user to specify which one, and retains conversational state so that a bare follow-up answer (`4x`, `6`, `3.5`, `x2`) resolves correctly without repeating the split family name. |
-| FR-24 | Once a single, specific split is identified (directly or via disambiguation), the system **constructs an actual program**: for every training day defined in that split's schedule, it selects the #1-ranked exercise for each muscle assigned to that day (pulled from the same exercise database used for individual lookups) and displays it with its training protocol. |
+| FR-18 | The user can request a workout split via natural trigger phrases (`split`, `splits`, `workout split`, `training schedule`, etc.), including full natural-language sentences ("can you give me a split"). |
+| FR-19 | The system provides seven split families, each defined by a repeating day-type pattern rather than a fixed frequency: Full Body, Upper/Lower, Anterior/Posterior, Push/Pull/Legs, Bro Split, Arnold Split, and Push/Pull/Legs x Arnold Split. |
+| FR-20 | Each family displays a description of its training philosophy (how its pattern works and why). No family has a fixed or preset frequency — frequency is entirely determined by the user's day-count answer (see FR-23). |
+| FR-21 | The user can name a split family directly (`upper`, `ppl`, `full body`, `anterior`, `bro split`, `arnold`, `ppl x arnold`) to identify it directly, with typo tolerance. |
+| FR-22 | Split-related words always take priority over any identically- or similarly-spelled muscle name (e.g. bare `upper` always resolves to the Upper/Lower split, never to "Upper Chest"; "push pull legs x arnold" resolves to the hybrid family, not the plain Push/Pull/Legs family). |
+| FR-23 | Once a single family is identified, the system always asks "How many days a week do you want to workout?" (accepting a bare number or a natural phrase like "4 days a week"), retaining conversational state so the next input is interpreted as the answer to that question. Valid range is 1-7 days; out-of-range or non-numeric answers are asked again without losing the chosen family. |
+| FR-24 | Once a day count is given, the system **constructs an actual program**: the family's day-type pattern is cycled for exactly that many training days, distributed as evenly as possible across the calendar week starting from Monday, with every remaining day marked as rest. For each training day, the system selects the #1-ranked exercise for every muscle assigned to that day (pulled from the same exercise database used for individual lookups) and displays it with its training protocol. |
 
 ### 5.7 Conversational UX
 
@@ -186,15 +186,23 @@ version:
 
 ---
 
-## 9. Appendix: Full Split List
+## 9. Appendix: Full Split Family List
 
-| Split | Frequency | Example Schedule |
-|---|---|---|
-| Full Body (3x/week) | Each muscle 3x/week | Mon/Wed/Fri: Full Body |
-| Full Body (3.5x/week avg) | Each muscle ~3.5x/week | 2-week alternating A/B cycle, Mon/Wed/Fri |
-| Upper/Lower (4x/week) | Each region 2x/week | Mon: Upper, Tue: Lower, Thu: Upper, Fri: Lower |
-| Upper/Lower (6x/week) | Each region 3x/week | Mon–Sat alternating Upper/Lower |
-| Anterior/Posterior (6x/week) | Each chain 3x/week | Mon–Sat alternating Anterior/Posterior |
-| Push/Pull/Legs (3x/week) | Each group 1x/week | Mon: Push, Tue: Pull, Wed: Legs |
-| Push/Pull/Legs x2 (6x/week) | Each group 2x/week | Mon–Sat: Push/Pull/Legs, Push/Pull/Legs |
-| Bro Split (5x/week) | Each group 1x/week | Mon–Fri: Chest/Back/Shoulders/Legs/Arms |
+Frequency is no longer fixed per split — every family below is defined
+by a repeating day-type **pattern**, cycled for however many training
+days (1-7) the user requests, with rest evenly distributed across the
+remaining days starting from Monday.
+
+| Split Family | Pattern (repeats to fill the chosen day count) |
+|---|---|
+| Full Body | Full Body A, Full Body B (alternating) |
+| Upper/Lower | Upper, Lower |
+| Anterior/Posterior | Anterior, Posterior |
+| Push/Pull/Legs | Push, Pull, Legs |
+| Bro Split | Chest, Back, Shoulders, Legs, Arms |
+| Arnold Split | Chest & Back, Shoulders & Arms, Legs |
+| Push/Pull/Legs x Arnold Split | Push, Pull, Legs, Shoulders & Arms, Chest & Back, Legs |
+
+Example: choosing Push/Pull/Legs at 5 days/week produces Push, Pull,
+Legs, Push, Pull (pattern repeats mid-cycle) with the remaining 2 days
+as rest, spread evenly rather than clustered at the end of the week.
