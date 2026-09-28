@@ -37,7 +37,6 @@ biomechanics concepts, not a citation of one single study):
      bodyweight or a light cable stack).
 """
  
-import random
 import re
 import sys
 from dataclasses import dataclass
@@ -1596,32 +1595,145 @@ _PROTOCOL_OVERRIDES = {
 }
  
  
-def get_protocol(exercise_name: str) -> str:
-    """Return the training protocol ('best method') for an exercise: one
-    of 2 sets to failure, 1 set x ~6 with 1 rep in reserve, or 1 set to
-    failure -- never a generic '3 sets' prescription."""
+_PROTOCOL_BODYWEIGHT_KEYWORDS = [
+    "push-up", "bodyweight", "crunch", "sit-up", "hanging leg",
+    "hanging knee", "wheel rollout", "bench dip", "ring dip",
+]
+ 
+# Exercise-mode protocols (looking up a single muscle): always 1-2 sets.
+_EXERCISE_MODE_PROTOCOLS = {
+    "heavy": "1 set x 5-8 reps, stopping 1 rep short of failure (1 RIR)",
+    "machine": "2 sets to true failure x 8-15 reps each",
+    "bodyweight": "1 set to true failure x 15-25 reps",
+    "isolation": "1 set to true failure x 10-15 reps",
+}
+ 
+ 
+def _find_override(name_lower: str):
+    """Return the matching key in _PROTOCOL_OVERRIDES for an already-
+    lowercased exercise name, or None if it isn't a special case."""
+    for key in _PROTOCOL_OVERRIDES:
+        if key in name_lower:
+            return key
+    return None
+ 
+ 
+def classify_exercise(exercise_name: str) -> str:
+    """Sort an exercise into one category, used by both exercise mode and
+    split mode: 'override' (time-based/special), 'heavy' (heavy free-weight
+    compound), 'machine' (machine/cable, fixed path), 'bodyweight', or
+    'isolation' (everything else: free-weight isolation, dumbbells...)."""
     name = exercise_name.lower()
- 
-    for key, protocol in _PROTOCOL_OVERRIDES.items():
-        if key in name:
-            return protocol
- 
+    if _find_override(name) is not None:
+        return "override"
     if any(k in name for k in _PROTOCOL_1RIR_KEYWORDS):
-        return "1 set x 5-8 reps, stopping 1 rep short of failure (1 RIR)"
- 
+        return "heavy"
     if any(k in name for k in _PROTOCOL_2X_FAILURE_KEYWORDS):
-        return "2 sets to true failure x 8-15 reps each"
+        return "machine"
+    if any(k in name for k in _PROTOCOL_BODYWEIGHT_KEYWORDS):
+        return "bodyweight"
+    return "isolation"
  
-    # bodyweight-only movements suit a higher rep target before failure
-    bodyweight_keywords = [
-        "push-up", "bodyweight", "crunch", "sit-up", "hanging leg",
-        "hanging knee", "wheel rollout", "bench dip", "ring dip",
-    ]
-    if any(k in name for k in bodyweight_keywords):
-        return "1 set to true failure x 15-25 reps"
  
-    # default: free-weight isolation, unilateral, or dumbbell movements
-    return "1 set to true failure x 10-15 reps"
+def get_protocol(exercise_name: str) -> str:
+    """EXERCISE MODE protocol ('best method') for an exercise: always 1-2
+    sets -- 2 sets to failure, 1 set x ~6 with 1 rep in reserve, or 1 set
+    to failure -- never a generic '3 sets' prescription."""
+    override = _find_override(exercise_name.lower())
+    if override is not None:
+        return _PROTOCOL_OVERRIDES[override]
+    return _EXERCISE_MODE_PROTOCOLS[classify_exercise(exercise_name)]
+ 
+ 
+# ---------------------------------------------------------------------------
+# SPLIT-MODE PROTOCOLS (sets/reps tailored to a specific built program)
+#
+# Exercise mode (get_protocol above) is unchanged. Inside a built split
+# program, sets and reps are tailored to the split, the number of training
+# days chosen, and the session itself:
+#   - Sets never exceed 2 and reps never exceed 10.
+#   - Sets scale with how often that muscle is trained in the week: a
+#     muscle trained 1-2x/week gets 2 sets per session, 3+x/week gets 1
+#     set, so weekly volume stays balanced as frequency rises.
+#   - Heavy compound lifts get 2 sets only if that muscle is trained just
+#     once a week; otherwise 1 set (systemic fatigue).
+#   - Long sessions (8+ exercises) use 1 set per exercise.
+#   - Training 6-7 days a week uses 1 set per exercise (less recovery
+#     time between sessions).
+# ---------------------------------------------------------------------------
+ 
+SPLIT_MAX_SETS = 2
+SPLIT_MAX_REPS = 10
+_SPLIT_REDUCED_SETS = 1
+_SPLIT_LONG_SESSION = 8          # exercises in one day at/above which sets are capped
+_SPLIT_HIGH_FREQUENCY_DAYS = 6   # days/week at/above which sets are capped
+ 
+# muscle trained N times per week -> sets per session
+_SPLIT_SETS_BY_WEEKLY_FREQUENCY = {1: 2, 2: 2, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}
+ 
+# Split-mode text for the special-case exercises (same keys as
+# _PROTOCOL_OVERRIDES). {sets} becomes e.g. "2 sets". Reps never exceed 10.
+_SPLIT_OVERRIDE_TEXT = {
+    "farmer's carry": "{sets}, each carried for maximum time with good "
+                       "posture (about 30-60 seconds)",
+    "firm sugar-free chewing gum": "Not set-based -- one extended chewing "
+                                    "session of roughly 10-20 minutes",
+    "progressive jaw-resistance device": "{sets} x 8-10 controlled bites, "
+                                          "every set to true failure",
+    "standing march": "{sets} x 8-10 reps per leg, every set to true "
+                       "failure",
+    "heel walks": "{sets}, each walked for maximum distance/time with "
+                   "good form",
+    "nordic hamstring curl": "{sets}, as many controlled reps as possible "
+                              "before form breaks down (typically 3-8)",
+}
+ 
+ 
+def muscle_weekly_frequency(schedule) -> dict:
+    """Count how many training days each muscle appears on in a built
+    weekly schedule (a list of (weekday, day_type, muscle_keys))."""
+    freq = {}
+    for _, day_type, muscle_keys in schedule:
+        if day_type is None:
+            continue
+        for key in set(muscle_keys):
+            freq[key] = freq.get(key, 0) + 1
+    return freq
+ 
+ 
+def compute_split_sets(category: str, weekly_frequency: int,
+                       session_size: int, num_days: int) -> int:
+    """Sets per session for one exercise inside a built split (1-2)."""
+    sets = _SPLIT_SETS_BY_WEEKLY_FREQUENCY.get(weekly_frequency, 1)
+    if category == "heavy" and weekly_frequency >= 2:
+        sets = _SPLIT_REDUCED_SETS
+    if session_size >= _SPLIT_LONG_SESSION:
+        sets = _SPLIT_REDUCED_SETS
+    if num_days >= _SPLIT_HIGH_FREQUENCY_DAYS:
+        sets = _SPLIT_REDUCED_SETS
+    return max(1, min(sets, SPLIT_MAX_SETS))
+ 
+ 
+def get_split_protocol(exercise_name: str, weekly_frequency: int,
+                       session_size: int, num_days: int) -> str:
+    """SPLIT MODE protocol: sets tailored to this muscle's weekly
+    frequency, the day's session size, and the chosen number of training
+    days (never more than 2 sets); reps never above 10."""
+    category = classify_exercise(exercise_name)
+    sets = compute_split_sets(category, weekly_frequency, session_size,
+                              num_days)
+    sets_phrase = f"{sets} set" if sets == 1 else f"{sets} sets"
+ 
+    if category == "override":
+        key = _find_override(exercise_name.lower())
+        return _SPLIT_OVERRIDE_TEXT[key].format(sets=sets_phrase)
+    if category == "heavy":
+        return (f"{sets_phrase} x 5-8 reps, each set stopping 1 rep short "
+                f"of failure (1 RIR)")
+    if category == "bodyweight":
+        return (f"{sets_phrase} x 8-10 reps, every set to true failure "
+                f"(add weight or slow the tempo if you can pass 10)")
+    return f"{sets_phrase} x 8-10 reps, every set to true failure"
  
  
 def print_report(muscle_key: str):
@@ -2048,6 +2160,7 @@ def get_split_followup_prompt(family_keys):
 def print_program(family_key: str, num_days: int):
     fam = SPLIT_FAMILIES[family_key]
     schedule = build_weekly_schedule(family_key, num_days)
+    weekly_freq = muscle_weekly_frequency(schedule)
  
     print()
     print("=" * 80)
@@ -2055,8 +2168,14 @@ def print_program(family_key: str, num_days: int):
     print("=" * 80)
     print_wrapped(
         "Below is the #1 ranked exercise for each muscle trained that "
-        "day, with its training protocol. Type any muscle name above at "
-        "any time to see the full ranked list and alternatives for it.",
+        "day. Sets and reps are tailored to this split and your "
+        f"{num_days}-day week: muscles trained more often get fewer sets "
+        "per session so weekly volume stays balanced, heavy compound "
+        "lifts get 2 sets only if that muscle is trained once a week, "
+        "and long sessions (8+ exercises) and 6-7 day weeks use 1 set "
+        "per exercise. Sets never exceed 2 and reps never exceed 10. "
+        "Type any muscle name above at any time to see the full ranked "
+        "list and alternatives for it.",
         indent=""
     )
     print("-" * 80)
@@ -2070,7 +2189,10 @@ def print_program(family_key: str, num_days: int):
         for mkey in muscle_keys:
             muscle = MUSCLE_DB[mkey]
             top_exercise = muscle.exercises[0]
-            protocol = get_protocol(top_exercise.name)
+            protocol = get_split_protocol(
+                top_exercise.name, weekly_freq.get(mkey, 1),
+                len(muscle_keys), num_days,
+            )
             print(f"  {muscle.display_name}: {top_exercise.name}")
             print(f"    -> {protocol}")
  
@@ -2165,13 +2287,24 @@ def resolve_category_answer(raw: str, category: str):
     return None
  
  
-_UNMATCHED_INPUT_MESSAGES = [
-    "Please enter a muscle.",
-    "Hmm, I didn't catch that -- try naming a muscle, or ask for a workout split.",
-    "That doesn't match anything I know. Try a muscle name (like 'biceps' or 'quads'), or ask for a split.",
-    "Not sure what you mean -- type a muscle you want to train, or ask for a workout split.",
-    "I don't recognize that one. Give me a muscle name, or ask for a split.",
-]
+# One consistent response for anything the program can't make sense of (a
+# typo, a stray number, gibberish) -- deliberately not randomized, so the
+# user always gets the same clear nudge toward a muscle or a split.
+_DIDNT_CATCH_MESSAGE = (
+    "Hmm, I didn't catch that -- try naming a muscle, or ask for a "
+    "workout split."
+)
+ 
+ 
+def print_didnt_catch():
+    print(f"\n{_DIDNT_CATCH_MESSAGE}\n")
+ 
+ 
+def looks_like_number(raw: str) -> bool:
+    """True if the whole input is just a number (e.g. '5', '3.5', '-2').
+    Numbers are only meaningful at the 'how many days a week' question,
+    which is handled before this check is ever reached."""
+    return re.fullmatch(r"\s*[-+]?\d+(?:[.,]\d+)?\s*", raw) is not None
  
  
 _MUSCLE_INTENT_PHRASES = {
@@ -2192,6 +2325,36 @@ def is_muscle_intent(raw: str) -> bool:
     return bool(get_close_matches(key, _MUSCLE_INTENT_PHRASES, n=1, cutoff=0.8))
  
  
+# ---------------------------------------------------------------------------
+# ENDING THE SESSION
+# The program loops until the user decides they're finished, so instead of
+# nagging on every prompt, it shows a gentle "how to finish" hint only at
+# natural stopping points: right after a muscle report, or right after a
+# split program is built. Ctrl+C / Ctrl+D also end the session cleanly.
+# ---------------------------------------------------------------------------
+ 
+_QUIT_WORDS = {
+    "quit", "exit", "q", "done", "bye", "goodbye", "finished",
+    "im done", "i'm done",
+}
+ 
+_GOODBYE_MESSAGE = "Goodbye -- good luck with your training!"
+ 
+_DONE_HINTS = {
+    "muscle": "Done with this muscle? Type 'quit' to end your session, "
+              "or keep exploring.",
+    "split": "Happy with your plan? Type 'quit' to end your session, or "
+             "keep exploring.",
+}
+ 
+ 
+def print_done_hint(kind: str):
+    """Print the end-of-session hint for a completed task ('muscle' after
+    an exercise report, 'split' after a built program)."""
+    print(_DONE_HINTS[kind])
+    print()
+ 
+ 
 def main():
     print("Welcome to BuildFitness.")
     print(
@@ -2208,10 +2371,16 @@ def main():
     next_prompt = default_prompt
  
     while True:
-        raw = input(next_prompt)
+        try:
+            raw = input(next_prompt)
+        except (EOFError, KeyboardInterrupt):
+            # Ctrl+D / Ctrl+C: leave cleanly instead of a traceback
+            print()
+            print(_GOODBYE_MESSAGE)
+            break
         next_prompt = default_prompt
-        if raw.strip().lower() in ("quit", "exit", "q"):
-            print("Goodbye!")
+        if raw.strip().lower().rstrip(".!") in _QUIT_WORDS:
+            print(_GOODBYE_MESSAGE)
             break
  
         if not raw.strip():
@@ -2230,6 +2399,7 @@ def main():
                 print_report(resolved)
                 sys.stdout.flush()
                 print()
+                print_done_hint("muscle")
                 continue
             # didn't look like an answer to the pending question -- fall
             # through and process this input normally below (so asking
@@ -2241,6 +2411,7 @@ def main():
             day_count = parse_day_count(raw)
             if day_count is not None:
                 print_program(pending_days_family, day_count)
+                print_done_hint("split")
                 pending_days_family = None
                 sys.stdout.flush()
                 continue
@@ -2254,6 +2425,14 @@ def main():
             # No number at all -- treat as a fresh input instead (a new
             # split, a muscle name, etc.)
             pending_days_family = None
+ 
+        # A bare number is only a valid answer to the days-per-week
+        # question (already handled above). Anywhere else, treat it as
+        # unrecognized input.
+        if looks_like_number(raw):
+            print_didnt_catch()
+            sys.stdout.flush()
+            continue
  
         if is_muscle_intent(raw):
             next_prompt = "Great! Which muscle are you looking for? "
@@ -2278,13 +2457,14 @@ def main():
  
         muscle_key = normalize_input(raw)
         if muscle_key is None:
-            print(f"\n{random.choice(_UNMATCHED_INPUT_MESSAGES)}\n")
+            print_didnt_catch()
             sys.stdout.flush()
             continue
  
         print_report(muscle_key)
         sys.stdout.flush()
         print()
+        print_done_hint("muscle")
  
  
 if __name__ == "__main__":
