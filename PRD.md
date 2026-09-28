@@ -78,7 +78,8 @@ clinical/rehab exercise prescription.
 | FR-2 | Input is matched against common names, gym nicknames, and anatomical/Latin names for every muscle in the database. |
 | FR-3 | Input matching tolerates typos via fuzzy string matching. |
 | FR-4 | Input matching tolerates singular/plural variation automatically (e.g. "calf" ↔ "calves," "bicep" ↔ "biceps") without requiring every form to be manually aliased. |
-| FR-5 | If input matches no known muscle, the program responds with "Please enter a muscle." and continues the input loop without error or exit. |
+| FR-5 | If input isn't recognized — no matching muscle, split, or answer to a pending question (including typos of quit words) — the program responds with one consistent message ("Hmm, I didn't catch that -- try naming a muscle, or ask for a workout split.") and continues the input loop without error or exit. The message is fixed, not randomized. |
+| FR-38 | A bare number typed at any prompt other than the "how many days a week" question is treated as unrecognized input and gets the same message. At the day-count question, a number from 1-7 is the expected answer; a number outside that range gets "Please pick a number of days between 1 and 7." and the question is asked again. |
 
 ### 5.2 Muscle Coverage
 
@@ -112,8 +113,14 @@ Adductors, Calves, Tibialis, Neck, Masseter.
 | ID | Requirement |
 |----|-------------|
 | FR-12 | Every exercise displays a specific training protocol — never a generic "3 sets of X." |
-| FR-13 | Protocol is one of three types, chosen by the injury risk of training that exercise to true failure: (a) 2 sets to true failure (safe, supported/machine path), (b) 1 set to true failure (free-weight isolation/unilateral/bodyweight), (c) 1 set × 5–8 reps at 1 rep in reserve (heavy free-weight compound lifts). |
-| FR-14 | A small set of exercises that don't fit a standard rep scheme (e.g. Farmer's Carry, Nordic Hamstring Curl) receive a manually tailored protocol string instead of the automatic classification. |
+| FR-13 | In **exercise mode** (looking up a single muscle), every exercise gets one of three protocols, chosen by the injury risk of training it to true failure, and always **1-2 sets**: (a) 2 sets to true failure × 8-15 reps (machine/cable, supported path), (b) 1 set to true failure × 10-15 reps (free-weight isolation/unilateral) or × 15-25 reps (bodyweight), (c) 1 set × 5-8 reps at 1 rep in reserve (heavy free-weight compound lifts). |
+| FR-14 | A small set of exercises that don't fit a standard rep scheme (e.g. Farmer's Carry, Nordic Hamstring Curl) receive a manually tailored protocol string (1 set in exercise mode) instead of the automatic classification. |
+| FR-29 | In **split mode** (inside a built program), sets and reps are tailored to the chosen split family, the user's day count, and the day's session instead of using the exercise-mode protocols. Sets never exceed 2 and reps never exceed 10. |
+| FR-30 | Sets scale with each muscle's weekly training frequency in the built schedule: trained 1-2x/week → 2 sets; 3 or more times/week → 1 set. |
+| FR-31 | Sets drop to 1 for: heavy compound lifts (the 1 RIR category) unless that muscle is trained only once a week, any day with 8 or more exercises, and any program with 6-7 training days per week. |
+| FR-32 | Reps in split mode: 5-8 for heavy compound lifts (each set stopping 1 rep short of failure); 8-10 for all other exercises (every set to true failure). Bodyweight movements carry a note to add weight or slow the tempo beyond 10 reps. |
+| FR-33 | Special-case exercises (e.g. Farmer's Carry, Nordic Hamstring Curl) use the same set-count rules with time-based or tailored text, and never exceed 10 reps. |
+| FR-34 | Split-mode tailoring never alters exercise mode: exercise-mode reps and 1-2 set recommendations are unchanged. |
 
 ### 5.5 Ambiguous Term Clarification
 
@@ -133,7 +140,7 @@ Adductors, Calves, Tibialis, Neck, Masseter.
 | FR-21 | The user can name a split family directly (`upper`, `ppl`, `full body`, `anterior`, `bro split`, `arnold`, `ppl x arnold`) to identify it directly, with typo tolerance. |
 | FR-22 | Split-related words always take priority over any identically- or similarly-spelled muscle name (e.g. bare `upper` always resolves to the Upper/Lower split, never to "Upper Chest"; "push pull legs x arnold" resolves to the hybrid family, not the plain Push/Pull/Legs family). |
 | FR-23 | Once a single family is identified, the system always asks "How many days a week do you want to workout?" (accepting a bare number or a natural phrase like "4 days a week"), retaining conversational state so the next input is interpreted as the answer to that question. Valid range is 1-7 days; out-of-range or non-numeric answers are asked again without losing the chosen family. |
-| FR-24 | Once a day count is given, the system **constructs an actual program**: the family's day-type pattern is cycled for exactly that many training days, distributed as evenly as possible across the calendar week starting from Monday, with every remaining day marked as rest. For each training day, the system selects the #1-ranked exercise for every muscle assigned to that day (pulled from the same exercise database used for individual lookups) and displays it with its training protocol. |
+| FR-24 | Once a day count is given, the system **constructs an actual program**: the family's day-type pattern is cycled for exactly that many training days, distributed as evenly as possible across the calendar week starting from Monday, with every remaining day marked as rest. For each training day, the system selects the #1-ranked exercise for every muscle assigned to that day (pulled from the same exercise database used for individual lookups) and displays it with sets and reps tailored to that split and day count (see FR-29 through FR-34). |
 
 ### 5.7 Conversational UX
 
@@ -142,7 +149,10 @@ Adductors, Calves, Tibialis, Neck, Masseter.
 | FR-25 | On startup, the program displays a welcome message identifying the product as "BuildFitness" and briefly describing what it can do (muscle lookup and split building), without listing every option as a menu. |
 | FR-26 | Outside of the two explicitly-designed exceptions (region/category clarification, and the split overview), the program never presents the user with a list of options to choose from — all other input is free text. |
 | FR-27 | The user can chain unlimited lookups/requests in a single session (muscle → muscle, muscle → split, split → muscle, etc.) without needing to restart or confirm continuation between them. |
-| FR-28 | Typing `quit`, `exit`, or `q` ends the session at any time. |
+| FR-28 | The session ends only when the user chooses to end it — the program never terminates automatically. Typing `quit`, `exit`, `q`, `done`, `bye`, `goodbye`, `finished`, or `I'm done` (case-insensitive, trailing `.`/`!` ignored) ends it at any prompt, including while a follow-up question is pending, and prints a closing message. |
+| FR-35 | Pressing Ctrl+C or Ctrl+D at any input prompt ends the session cleanly with the same closing message — no traceback, exit code 0. |
+| FR-36 | The program shows a short end-of-session hint ("Done with this muscle? Type 'quit' to end your session, or keep exploring." after an exercise report; "Happy with your plan? Type 'quit' to end your session, or keep exploring." after a split program) only at natural stopping points: immediately after a muscle's exercise report and immediately after a split program is built. |
+| FR-37 | The end-of-session hint is never shown at startup, on the split overview, while a clarifying question is pending (muscle category, split choice, day count), or after unrecognized input, so the standard prompt stays uncluttered. |
 
 ---
 
@@ -153,7 +163,7 @@ Adductors, Calves, Tibialis, Neck, Masseter.
 | NFR-1 | Runs with the Python 3 standard library only — no third-party dependencies required. |
 | NFR-2 | Single-file implementation (`muscle_exercises.py`) for ease of distribution and review. |
 | NFR-3 | All exercise/muscle content is stored as structured data (`MUSCLE_DB`, `SPLITS`, alias dictionaries) separate from program logic, so new muscles, exercises, or splits can be added without altering control flow. |
-| NFR-4 | Every user-facing claim (mechanism, ranking rationale, protocol assignment, split rationale) must be traceable to one of the documented methodologies (7 ranking criteria; 3 protocol types; split-frequency research framing) — no unexplained assertions. |
+| NFR-4 | Every user-facing claim (mechanism, ranking rationale, protocol assignment, split rationale) must be traceable to one of the documented methodologies (7 ranking criteria; 3 exercise-mode protocol types; split-mode set/rep tailoring rules; split-frequency research framing) — no unexplained assertions. |
 
 ---
 

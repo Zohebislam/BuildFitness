@@ -14,13 +14,24 @@ for that muscle **ranked from best to worst**, each with:
 python3 muscle_exercises.py
 ```
 
-Then type ANY muscle name when prompted. The program never shows a menu
-or list to pick from — it just asks "Enter a muscle to train" and you
-type whatever you want (common name, gym nickname, or anatomical/Latin
-name all work). Behind the scenes it matches your input against ~20
-major trainable muscle groups covering essentially the whole body.
+The program asks "What would you like to do -- name a muscle or ask for
+a split?" and you type whatever you want — there's no menu to pick from.
+Common names, gym nicknames, and anatomical/Latin names all work, and
+your input is matched against 34 major trainable muscles and muscle
+groups covering essentially the whole body.
 
-Type `quit` to exit.
+If the program doesn't recognize what you typed — a typo (even of
+"quit"), a stray number, anything it can't match to a muscle or a
+split — it always gives the same response and asks again:
+
+> Hmm, I didn't catch that -- try naming a muscle, or ask for a workout
+> split.
+
+The one place a number is expected is the "how many days a week do you
+want to workout?" question: 1-7 builds your program, and anything
+outside that range gets "Please pick a number of days between 1 and 7."
+
+See [Ending your session](#ending-your-session) for how to finish.
 
 ## Broad body-region / multi-part words
 
@@ -61,20 +72,50 @@ principles:
 
 ## Training protocol ("best method")
 
-Every exercise now shows exactly how to train it — never a generic
-"3 sets of X." Each one gets one of three protocols, chosen by injury
-risk if pushed to true failure:
+How much you're told to do depends on where you are in the program.
 
-- **2 sets to true failure** — for machine/cable movements on a fixed,
-  supported path where failure just means the weight stops moving.
+### Exercise mode (looking up a muscle)
+
+Every exercise shows exactly how to train it — always **1-2 sets**,
+never a generic "3 sets of X." Each one gets one of three protocols,
+chosen by injury risk if pushed to true failure:
+
+- **2 sets to true failure x 8-15 reps** — for machine/cable movements
+  on a fixed, supported path where failure just means the weight stops
+  moving.
 - **1 set to true failure** — for free-weight isolation, unilateral, and
-  bodyweight movements.
+  bodyweight movements (10-15 reps for free weights, 15-25 for
+  bodyweight).
 - **1 set x 5-8 reps, 1 rep in reserve (1 RIR)** — for heavy free-weight
   compound lifts (squats, deadlifts, heavy presses) where grinding to
   true failure carries real injury risk.
 
 A few exercises (Farmer's Carry, Nordic Hamstring Curl, etc.) get a
 tailored protocol instead, since they don't fit a normal rep scheme.
+
+### Split mode (inside a built program)
+
+When the program builds a split for you, sets and reps are tailored to
+*that* split and *your* day count instead — with two hard limits:
+**sets never exceed 2 and reps never exceed 10.**
+
+- **Sets follow how often each muscle is trained that week:** once or
+  twice → 2 sets, three or more times → 1 set. More frequent training
+  means less per session, so weekly volume stays balanced.
+- **Heavy compound lifts** (squats, deadlifts, heavy presses) get 2 sets
+  only if that muscle is trained just once a week; otherwise 1 set,
+  since they cost the most recovery.
+- **Long sessions** (8+ exercises in one day) use 1 set per exercise.
+- **6-7 training days a week** uses 1 set per exercise, since there's
+  less recovery time between sessions.
+- **Reps:** 5-8 for heavy compounds (every set stopping 1 rep short of
+  failure); 8-10 for everything else (every set to true failure). For
+  bodyweight movements, add weight or slow the tempo if you can pass 10.
+
+Example: Bro Split at 5 days trains each muscle once, so every exercise
+gets 2 sets. Push/Pull/Legs at 4 days trains the push muscles twice, so
+most get 2 sets but heavy presses drop to 1. Push/Pull/Legs at 6 days
+uses 1 set per exercise.
 
 ## Workout split builder
 
@@ -102,7 +143,8 @@ rest as evenly as possible across the week, starting from Monday.
 Once you give a day count, the program builds an **actual program**:
 for every training day, it picks the #1-ranked exercise for each muscle
 trained that day (straight from the same database used for individual
-muscle lookups) along with its training protocol — a complete,
+muscle lookups) along with sets and reps tailored to that split and
+day count — a complete,
 ready-to-follow week, not just a description of the split.
 
 ## Coverage
@@ -116,6 +158,27 @@ biceps, brachialis, brachioradialis, forearms, glutes, hip flexors,
 hamstrings, biceps femoris, tibialis, calves, quadriceps, adductors,
 neck, and masseter — plus common nicknames, typos, and anatomical names
 for all of them.
+
+## Ending your session
+
+The program keeps running until you decide you're finished — there's no
+automatic cutoff, since you may want to look up another muscle or try a
+different split. To finish, type any of `quit`, `exit`, `q`, `done`,
+`bye`, `goodbye`, `finished`, or `I'm done` (case-insensitive, at any
+prompt — even while it's waiting on an answer). `Ctrl+C` or `Ctrl+D`
+also end the session cleanly, with no error message.
+
+You won't be reminded about this on every prompt. Instead, a short hint
+appears only at natural stopping points:
+
+- After an exercise report: *"Done with this muscle? Type 'quit' to end
+  your session, or keep exploring."*
+- After a split program is built: *"Happy with your plan? Type 'quit'
+  to end your session, or keep exploring."*
+
+It does not appear at startup, on the split overview, while a
+clarifying question is pending (such as "how many days a week do you
+want to workout?"), or after an unrecognized input.
 
 ## Extending it
 
